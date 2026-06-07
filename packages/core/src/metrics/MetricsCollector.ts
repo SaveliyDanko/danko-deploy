@@ -18,6 +18,11 @@ const SEP = "===DANKO_SEP===";
  * отделён маркером. `2>/dev/null || true` — чтобы отсутствие docker не ломало всё.
  */
 const COLLECT_CMD = [
+  // CPU%: два снимка строки `cpu` из /proc/stat с короткой паузой. Реальная загрузка
+  // (как в top/htop) считается из дельты jiffies — load average для этого НЕ годится
+  // (он про длину очереди процессов, а не про занятость CPU).
+  "head -1 /proc/stat; sleep 0.3; head -1 /proc/stat",
+  `echo "${SEP}"`,
   "cat /proc/loadavg",
   `echo "${SEP}"`,
   "cat /proc/uptime",
@@ -198,13 +203,39 @@ function parsePorts(block: string): ListeningPort[] {
 }
 
 /**
- * Считает CPU% из loadAvg(1м), нормируя на число ядер.
- * Это грубая оценка (load != cpu), но "без агента" точнее одной командой не получить
- * без двух замеров top с паузой. Достаточно для дашборда.
+ * Считает РЕАЛЬНУЮ загрузку CPU (%) из двух снимков строки `cpu` /proc/stat,
+ * снятых с короткой паузой. Так же делают top/htop: cpu% = 100*(1 - Δidle/Δtotal).
+ * idle включает iowait (время простоя в ожидании I/O — CPU при этом не занят).
+ * Возвращает null, если снимки не распарсились (тогда дашборд покажет «—»).
+ *
+ * Формат строки: "cpu user nice system idle iowait irq softirq steal guest guest_nice".
  */
-function estimateCpuPercent(load1: number, cores: number): number {
-  if (cores <= 0) return 0;
-  return Math.min(100, Math.round((load1 / cores) * 100));
+export function parseCpuPercent(block: string): number | null {
+  const lines = block
+    .trim()
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("cpu "));
+  if (lines.length < 2) return null;
+
+  const first = parseCpuLine(lines[0]!);
+  const second = parseCpuLine(lines[1]!);
+  if (!first || !second) return null;
+
+  const totalDelta = second.total - first.total;
+  const idleDelta = second.idle - first.idle;
+  if (totalDelta <= 0) return 0; // нет тиков между замерами — считаем простой
+  const usage = (1 - idleDelta / totalDelta) * 100;
+  return Math.max(0, Math.min(100, Math.round(usage)));
+}
+
+/** Разбирает одну строку `cpu ...` в сумму всех тиков и тики простоя (idle+iowait). */
+function parseCpuLine(line: string): { total: number; idle: number } | null {
+  const nums = line.split(/\s+/).slice(1).map(Number);
+  if (nums.length < 5 || nums.some((n) => Number.isNaN(n))) return null;
+  const idle = nums[3]! + nums[4]!; // idle + iowait
+  const total = nums.reduce((a, b) => a + b, 0);
+  return { total, idle };
 }
 
 /** Собирает снимок метрик сервера по SSH. */
@@ -214,6 +245,7 @@ export class MetricsCollector {
   async collect(target: SshTarget): Promise<MetricsSnapshot> {
     const { stdout } = await this.ssh.exec(target, COLLECT_CMD);
     const [
+      cpuBlock = "",
       loadBlock = "",
       uptimeBlock = "",
       memBlock = "",
@@ -226,21 +258,13 @@ export class MetricsCollector {
     const { loadAvg } = parseLoadAvg(loadBlock);
     const mem = parseMem(memBlock);
 
-    // Число ядер берём из nproc лениво только если есть load — отдельной дешёвой командой.
-    let cores = 1;
-    if (loadAvg) {
-      const nproc = await this.ssh.exec(target, "nproc");
-      const n = Number(nproc.stdout.trim());
-      if (!Number.isNaN(n) && n > 0) cores = n;
-    }
-
     const containers = parseContainers(dockerBlock);
     mergeContainerStats(containers, statsBlock); // нагрузка cpu/mem по контейнерам
 
     return {
       serverId: target.id,
       collectedAt: new Date().toISOString(),
-      cpuPercent: loadAvg ? estimateCpuPercent(loadAvg[0], cores) : null,
+      cpuPercent: parseCpuPercent(cpuBlock),
       loadAvg,
       memUsedMb: mem.used,
       memTotalMb: mem.total,
