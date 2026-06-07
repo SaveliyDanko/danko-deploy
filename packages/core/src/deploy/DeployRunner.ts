@@ -40,7 +40,11 @@ export function resolveDeploySteps(input: DeployInput): DeployStep[] {
         { name: "Git pull", run: "git pull --ff-only" },
         { name: "Pull images", run: `${composeBase} pull --ignore-buildable` },
         { name: "Up (build)", run: `${composeBase} up -d --build` },
+        // Чистим то, что копится от частых `--build`: dangling-образы И build cache
+        // (главный источник роста диска). Теговые образы и volumes НЕ трогаем —
+        // чтобы оставался откат и не терялись данные.
         { name: "Prune dangling", run: "docker image prune -f" },
+        { name: "Prune build cache", run: "docker builder prune -f" },
       ];
     }
     case "systemd": {
