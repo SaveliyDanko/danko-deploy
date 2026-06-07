@@ -1,0 +1,15 @@
+---
+# Раскатка DankoDeploy на стенд одной командой:
+#   ansible-playbook site.yml --ask-vault-pass
+#
+# Минимум, что нужно заполнить:
+#   - inventory.ini             (адрес VPS, SSH-пользователь)
+#   - group_vars/dankodeploy.yml (домен, repo, email)
+#   - group_vars/vault.yml       (пароль панели; зашифровать ansible-vault)
+
+- name: Deploy DankoDeploy
+  hosts: dankodeploy
+  vars_files:
+    - group_vars/vault.yml
+  roles:
+    - dankodeploy

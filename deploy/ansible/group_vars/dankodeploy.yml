@@ -1,0 +1,38 @@
+# ============================================================================
+#  DankoDeploy — параметры стенда. ЗАПОЛНИТЕ блок «обязательное», остальное —
+#  разумные дефолты. Пароль панели держите в vault.yml (ansible-vault).
+# ============================================================================
+
+# --- ОБЯЗАТЕЛЬНОЕ (минимум ввода) ---------------------------------------------
+
+# Домен панели (A-запись должна указывать на VPS — нужно для Let's Encrypt).
+dankodeploy_domain: panel.example.com
+
+# Git-репозиторий с кодом DankoDeploy (https или ssh).
+dankodeploy_repo: "https://github.com/ВАШ-АККАУНТ/DankoDeploy.git"
+
+# Email для регистрации сертификата Let's Encrypt (уведомления об истечении).
+dankodeploy_acme_email: you@example.com
+
+# Пароль панели — задаётся в vault.yml (см. vault.example.yml), переменная:
+#   vault_dankodeploy_panel_password
+dankodeploy_panel_password: "{{ vault_dankodeploy_panel_password }}"
+
+
+# --- ДЕФОЛТЫ (менять по желанию) ----------------------------------------------
+
+# Git-ветка для деплоя.
+dankodeploy_branch: main
+
+# Куда клонировать на сервере.
+dankodeploy_dir: /opt/dankodeploy
+
+# Прод-compose из репозитория.
+dankodeploy_compose_file: docker-compose.prod.yml
+
+# Пользователь-владелец каталога (создаётся, если нет; от него работает git/compose).
+dankodeploy_user: dankodeploy
+
+# Использовать staging-CA Let's Encrypt (для тестов, без лимитов на выпуск).
+# true — пока отлаживаете; false — боевой сертификат.
+dankodeploy_acme_staging: false

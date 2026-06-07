@@ -1,0 +1,16 @@
+---
+# Раскатка DankoDeploy на VPS: Docker → код → секреты → TLS → запуск.
+- import_tasks: docker.yml
+  tags: [docker]
+
+- import_tasks: code.yml
+  tags: [code]
+
+- import_tasks: secrets.yml
+  tags: [secrets]
+
+- import_tasks: tls.yml
+  tags: [tls]
+
+- import_tasks: deploy.yml
+  tags: [deploy]

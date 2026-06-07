@@ -1,0 +1,5 @@
+# Скопируйте в vault.yml и зашифруйте:  ansible-vault encrypt vault.yml
+# Здесь — только пароль панели. master-key и session-secret Ansible генерит сам
+# на сервере (идемпотентно, не перетирая при повторных прогонах).
+
+vault_dankodeploy_panel_password: "придумайте-надёжный-пароль"

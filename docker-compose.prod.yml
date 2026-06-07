@@ -1,0 +1,50 @@
+# Прод-вариант DankoDeploy для VPS: backend (Fastify) + web (nginx со статикой
+# фронта + TLS reverse-proxy). Наружу торчит ТОЛЬКО nginx; backend доступен лишь
+# во внутренней docker-сети (порт 3001 не публикуется).
+#
+# Перед запуском:
+#   1. cp .env.prod.example .env  и заполнить (master-key, password-hash, session-secret, домен)
+#   2. поправить deploy/nginx/dankodeploy.conf — вписать ВАШ-ДОМЕН
+#   3. выпустить TLS-сертификат (Let's Encrypt) в ./deploy/letsencrypt
+#   4. docker compose -f docker-compose.prod.yml up -d --build
+#
+# Подробности — docs/DEPLOY.md.
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    environment:
+      PORT: 3001
+      HOST: 0.0.0.0 # слушаем внутри контейнера; наружу не публикуется (нет ports)
+      DATABASE_URL: /app/data/dankodeploy.sqlite
+      BACKUP_DIR: /app/backups
+      # Фронт ходит на тот же origin через nginx, отдельный CORS-origin не нужен.
+      WEB_ORIGIN: ${WEB_ORIGIN:-https://localhost}
+      # КРИТИЧНО: без master-key не расшифровать сохранённые SSH-доступы.
+      DANKODEPLOY_MASTER_KEY: ${DANKODEPLOY_MASTER_KEY:?Задайте DANKODEPLOY_MASTER_KEY в .env}
+      # КРИТИЧНО для прода: пароль панели обязателен (веб-терминал = shell к серверам).
+      DANKODEPLOY_AUTH_PASSWORD_HASH: ${DANKODEPLOY_AUTH_PASSWORD_HASH:?Задайте DANKODEPLOY_AUTH_PASSWORD_HASH (pnpm gen-password)}
+      # Постоянный секрет cookie — иначе сессии слетают при рестарте.
+      DANKODEPLOY_SESSION_SECRET: ${DANKODEPLOY_SESSION_SECRET:?Задайте DANKODEPLOY_SESSION_SECRET (pnpm gen-password)}
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+    restart: unless-stopped
+    # Порт НЕ публикуется: доступ к backend — только через nginx по docker-сети.
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    depends_on:
+      - server
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx:/etc/nginx/conf.d:ro
+      - ./deploy/letsencrypt:/etc/letsencrypt:ro
+      - ./deploy/certbot-www:/var/www/certbot:ro
+    restart: unless-stopped

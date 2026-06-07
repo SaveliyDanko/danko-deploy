@@ -1,0 +1,32 @@
+---
+# Доставка кода (git clone/pull) и подстановка домена в nginx-конфиг.
+
+- name: Клонировать/обновить репозиторий DankoDeploy
+  ansible.builtin.git:
+    repo: "{{ dankodeploy_repo }}"
+    dest: "{{ dankodeploy_dir }}"
+    version: "{{ dankodeploy_branch }}"
+    # Локальные изменения (сгенерированный .env лежит вне git) не трогаем.
+    force: false
+  become_user: "{{ dankodeploy_user }}"
+  notify: rebuild dankodeploy
+
+- name: Каталоги для данных, бэкапов и TLS
+  ansible.builtin.file:
+    path: "{{ dankodeploy_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ dankodeploy_user }}"
+    group: "{{ dankodeploy_user }}"
+    mode: "0750"
+  loop:
+    - data
+    - backups
+    - deploy/letsencrypt
+    - deploy/certbot-www
+
+- name: Подставить домен в nginx-конфиг
+  ansible.builtin.replace:
+    path: "{{ dankodeploy_dir }}/deploy/nginx/dankodeploy.conf"
+    regexp: "ВАШ-ДОМЕН"
+    replace: "{{ dankodeploy_domain }}"
+  notify: reload nginx

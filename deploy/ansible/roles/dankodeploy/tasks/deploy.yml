@@ -1,0 +1,20 @@
+---
+# Запуск стека (build + up). Идемпотентно: compose поднимает только изменившееся.
+
+- name: Поднять стек DankoDeploy
+  ansible.builtin.command:
+    cmd: docker compose -f {{ dankodeploy_compose_file }} up -d --build
+    chdir: "{{ dankodeploy_dir }}"
+  become_user: "{{ dankodeploy_user }}"
+  register: dankodeploy_up
+  changed_when: "'Started' in dankodeploy_up.stderr or 'Created' in dankodeploy_up.stderr or 'Recreate' in dankodeploy_up.stderr"
+
+- name: Подождать готовности API (health-check)
+  ansible.builtin.uri:
+    url: "https://{{ dankodeploy_domain }}/api/health"
+    validate_certs: "{{ not (dankodeploy_acme_staging | bool) }}"
+    status_code: 200
+  register: dankodeploy_health
+  retries: 12
+  delay: 5
+  until: dankodeploy_health.status == 200

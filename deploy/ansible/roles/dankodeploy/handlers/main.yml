@@ -1,0 +1,20 @@
+---
+- name: rebuild dankodeploy
+  ansible.builtin.command:
+    cmd: docker compose -f {{ dankodeploy_compose_file }} up -d --build
+    chdir: "{{ dankodeploy_dir }}"
+  become_user: "{{ dankodeploy_user }}"
+
+- name: restart dankodeploy
+  ansible.builtin.command:
+    cmd: docker compose -f {{ dankodeploy_compose_file }} up -d
+    chdir: "{{ dankodeploy_dir }}"
+  become_user: "{{ dankodeploy_user }}"
+
+- name: reload nginx
+  ansible.builtin.command:
+    cmd: docker compose -f {{ dankodeploy_compose_file }} exec -T web nginx -s reload
+    chdir: "{{ dankodeploy_dir }}"
+  become_user: "{{ dankodeploy_user }}"
+  # На первом прогоне контейнер web ещё не запущен — игнорируем, up его поднимет.
+  failed_when: false
