@@ -197,6 +197,14 @@ shared           ← web
 Аутентификация: cookie-плагин + `registerAuthGuard` (onRequest-hook, защищает `/api/*` кроме
 whitelist) в `app.ts`. `/ws` проверяется в `routes/ws.ts` на handshake (`isRequestAuthenticated`
 → `close(1008)`). При `authEnabled=false` (нет хэша пароля) — всё открыто (dev).
+`POST /api/auth/login` ограничен `@fastify/rate-limit` (5 попыток / 15 мин на IP, иначе 429) —
+анти-брутфорс пароля. Плагин зарегистрирован с `global: false` (лимит только на этом роуте).
+
+**`BackgroundRunner`** (`services/BackgroundRunner.ts`) — общий паттерн фоновой SSH-операции
+(раньше дублировался в ServerSetupService/VpnService/VpnClientService): `run(task)` генерит `runId`,
+даёт задаче `publish(line, stream)` → канал `deploy:<runId>` (`deploy:log`), по завершении публикует
+`deploy:done` со статусом, на исключении — info-строку + `deploy:done failed`. Доменные сайд-эффекты
+(статус в БД, disconnect, onResult installer'а) остаются в задаче.
 
 **Обработка ошибок:** глобальный `registerErrorHandler` (`plugins/errorHandler.ts`, регистрируется до роутов)
 + `setNotFoundHandler`. Единый формат ответа `{ error }`; клиентские ошибки (4xx) отдаются как есть, а

@@ -14,6 +14,7 @@ import {
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
+import { BackgroundRunner } from "./BackgroundRunner.js";
 import type { ServerService } from "./ServerService.js";
 import type { WsHub } from "../ws/WsHub.js";
 
@@ -43,17 +44,19 @@ export class VpnService {
   private readonly outline: OutlineInstaller;
   private readonly readiness: VpnReadinessChecker;
   private readonly metrics: MetricsCollector;
+  private readonly runner: BackgroundRunner;
 
   constructor(
     private readonly db: Db,
     ssh: SshExecutor,
     private readonly masterKey: Buffer,
     private readonly servers: ServerService,
-    private readonly hub: WsHub,
+    hub: WsHub,
   ) {
     this.outline = new OutlineInstaller(ssh);
     this.readiness = new VpnReadinessChecker(ssh);
     this.metrics = new MetricsCollector(ssh);
+    this.runner = new BackgroundRunner(hub);
   }
 
   list(): VpnInstallationPublic[] {
@@ -135,40 +138,34 @@ export class VpnService {
       })
       .run();
 
-    const runId = nanoid();
     const target = this.servers.toTarget(serverRow);
 
-    void this.outline
-      .run(target, {
-        onLog: (line, stream) => {
-          this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream });
-        },
-        onResult: (result) => {
-          // apiUrl содержит management-токен — шифруем перед записью в БД.
-          this.db
-            .update(vpnInstallations)
-            .set({
-              apiUrlEnc: encryptSecret(result.apiUrl, this.masterKey),
-              certSha256: result.certSha256,
-              apiPort: result.apiPort ?? input.apiPort ?? null,
-              updatedAt: new Date().toISOString(),
-            })
-            .where(eq(vpnInstallations.id, id))
-            .run();
-        },
-        onDone: (status) => {
-          this.setStatus(id, status === "success" ? "active" : "error", status === "success" ? null : "Раскатка завершилась с ошибкой");
-          this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status });
-        },
-      })
-      .catch((err) => {
-        const line = `Внутренняя ошибка: ${err instanceof Error ? err.message : String(err)}`;
-        this.setStatus(id, "error", line);
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream: "info" });
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status: "failed" });
-      });
-
-    return { runId };
+    return this.runner.run(async (publish) => {
+      try {
+        return await this.outline.run(target, {
+          onLog: publish,
+          onResult: (result) => {
+            // apiUrl содержит management-токен — шифруем перед записью в БД.
+            this.db
+              .update(vpnInstallations)
+              .set({
+                apiUrlEnc: encryptSecret(result.apiUrl, this.masterKey),
+                certSha256: result.certSha256,
+                apiPort: result.apiPort ?? input.apiPort ?? null,
+                updatedAt: new Date().toISOString(),
+              })
+              .where(eq(vpnInstallations.id, id))
+              .run();
+          },
+          onDone: (status) => {
+            this.setStatus(id, status === "success" ? "active" : "error", status === "success" ? null : "Раскатка завершилась с ошибкой");
+          },
+        });
+      } catch (err) {
+        this.setStatus(id, "error", err instanceof Error ? err.message : String(err));
+        throw err;
+      }
+    });
   }
 
   /** Удаляет VPN с сервера (фон). По завершении удаляет строку из БД. */
@@ -179,30 +176,24 @@ export class VpnService {
     const serverRow = this.servers.get(row.serverId);
     if (!serverRow) return { error: "Сервер инсталляции не найден" };
 
-    const runId = nanoid();
     const target = this.servers.toTarget(serverRow);
 
-    void this.outline
-      .remove(target, {
-        onLog: (line, stream) => {
-          this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream });
-        },
-        onDone: (status) => {
-          if (status === "success") {
-            this.db.delete(vpnInstallations).where(eq(vpnInstallations.id, id)).run();
-          } else {
-            this.setStatus(id, "error", "Удаление завершилось с ошибкой");
-          }
-          this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status });
-        },
-      })
-      .catch((err) => {
-        const line = `Внутренняя ошибка: ${err instanceof Error ? err.message : String(err)}`;
-        this.setStatus(id, "error", line);
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream: "info" });
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status: "failed" });
-      });
-
-    return { runId };
+    return this.runner.run(async (publish) => {
+      try {
+        return await this.outline.remove(target, {
+          onLog: publish,
+          onDone: (status) => {
+            if (status === "success") {
+              this.db.delete(vpnInstallations).where(eq(vpnInstallations.id, id)).run();
+            } else {
+              this.setStatus(id, "error", "Удаление завершилось с ошибкой");
+            }
+          },
+        });
+      } catch (err) {
+        this.setStatus(id, "error", err instanceof Error ? err.message : String(err));
+        throw err;
+      }
+    });
   }
 }

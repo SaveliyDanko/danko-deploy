@@ -68,6 +68,9 @@ pnpm db:push             # создать/обновить схему БД на�
   логирует детали на сервере и отдаёт клиенту `{ error }` без стектрейса (5xx → общий текст). Поэтому при
   внутреннем сбое (ssh-keygen/SSH и т.п.) — **бросай**, не делай `500 { error: err.message }` (это утечка).
   Контракт ответа об ошибке всегда `{ error: string | object }`.
+- **Фоновая SSH-операция** (раскатка/установка со стримом лога) — через `BackgroundRunner`
+  (`services/BackgroundRunner.ts`): `runner.run(async (publish) => { …; return status })` сам
+  выдаёт `{ runId }`, шлёт лог в `deploy:<runId>` и публикует `deploy:done`. Не дублируй runId/catch/WS вручную.
 - Новые сервисы регистрируй в `apps/server/src/context.ts` (DI-контейнер `AppContext`).
 - Новый WS-тип сообщения → в discriminatedUnion `packages/shared/src/deploy.ts` (иначе `safeParse` отбросит).
 - Frontend: серверный стейт через TanStack Query; после мутаций инвалидируй `queryKey`.
@@ -80,6 +83,7 @@ pnpm db:push             # создать/обновить схему БД на�
   `/api/*` защищён guard'ом (`plugins/authGuard.ts`); `/ws` — проверкой сессии на handshake
   (`routes/ws.ts`, `close(1008)` без сессии). **Веб-терминал = прямой shell к серверу:**
   любой новый WS-канал с доступом к серверу обязан быть за этой проверкой; auth на `/ws` не ослаблять.
+  `POST /api/auth/login` — **rate-limit** (`@fastify/rate-limit`, 5 попыток / 15 мин на IP) против брутфорса.
 - Не логировать секреты и содержимое терминала. Не коммитить `.env`, `*.sqlite`, `backups/`, `data/`.
 
 ## Проверка результата

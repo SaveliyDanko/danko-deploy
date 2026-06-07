@@ -22,6 +22,7 @@ import {
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
+import { BackgroundRunner } from "./BackgroundRunner.js";
 import type { ServerService } from "./ServerService.js";
 import type { WsHub } from "../ws/WsHub.js";
 
@@ -51,17 +52,19 @@ export class VpnClientService {
   private readonly singbox: SingBoxInstaller;
   private readonly readiness: VpnClientReadinessChecker;
   private readonly metrics: MetricsCollector;
+  private readonly runner: BackgroundRunner;
 
   constructor(
     private readonly db: Db,
     ssh: SshExecutor,
     private readonly masterKey: Buffer,
     private readonly servers: ServerService,
-    private readonly hub: WsHub,
+    hub: WsHub,
   ) {
     this.singbox = new SingBoxInstaller(ssh);
     this.readiness = new VpnClientReadinessChecker(ssh);
     this.metrics = new MetricsCollector(ssh);
+    this.runner = new BackgroundRunner(hub);
   }
 
   list(): VpnClientPublic[] {
@@ -140,12 +143,9 @@ export class VpnClientService {
    * deploy:<runId>. Переиспользуется включением, повторным включением и сменой локации.
    */
   private runWithConfig(id: string, label: string): { runId: string } {
-    const runId = nanoid();
     this.setStatus(id, "installing");
 
-    void (async () => {
-      const publish = (line: string, stream: "stdout" | "stderr" | "info") =>
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream });
+    return this.runner.run(async (publish) => {
       try {
         const row = this.get(id);
         if (!row) throw new Error("VPN-клиент не найден");
@@ -167,7 +167,7 @@ export class VpnClientService {
           .where(eq(vpnClients.id, id))
           .run();
 
-        await this.singbox.run(
+        return await this.singbox.run(
           this.servers.toTarget(serverRow),
           { config, sshPort },
           {
@@ -181,19 +181,14 @@ export class VpnClientService {
             },
             onDone: (status) => {
               this.setStatus(id, status === "success" ? "active" : "error", status === "success" ? null : "Операция завершилась с ошибкой");
-              this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status });
             },
           },
         );
       } catch (err) {
-        const line = `Внутренняя ошибка: ${err instanceof Error ? err.message : String(err)}`;
-        this.setStatus(id, "error", line);
-        publish(line, "info");
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status: "failed" });
+        this.setStatus(id, "error", err instanceof Error ? err.message : String(err));
+        throw err;
       }
-    })();
-
-    return { runId };
+    });
   }
 
   /** Включает VPN-клиент на сервере (фон). Лог в WS-канал deploy:<runId>. */
@@ -265,34 +260,29 @@ export class VpnClientService {
     const serverRow = this.servers.get(row.serverId);
     if (!serverRow) return { error: "Сервер не найден" };
 
-    const runId = nanoid();
     const target = this.servers.toTarget(serverRow);
 
-    void this.singbox
-      .remove(target, serverRow.port, {
-        onLog: (line, stream) =>
-          this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream }),
-        onDone: (status) => {
-          // По успеху → removed (карточка остаётся в списке, можно включить снова).
-          this.setStatus(id, status === "success" ? "removed" : "error", status === "success" ? null : "Выключение завершилось с ошибкой");
-          if (status === "success") {
-            this.db
-              .update(vpnClients)
-              .set({ externalIp: null, updatedAt: new Date().toISOString() })
-              .where(eq(vpnClients.id, id))
-              .run();
-          }
-          this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status });
-        },
-      })
-      .catch((err) => {
-        const line = `Внутренняя ошибка: ${err instanceof Error ? err.message : String(err)}`;
-        this.setStatus(id, "error", line);
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream: "info" });
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status: "failed" });
-      });
-
-    return { runId };
+    return this.runner.run(async (publish) => {
+      try {
+        return await this.singbox.remove(target, serverRow.port, {
+          onLog: publish,
+          onDone: (status) => {
+            // По успеху → removed (карточка остаётся в списке, можно включить снова).
+            this.setStatus(id, status === "success" ? "removed" : "error", status === "success" ? null : "Выключение завершилось с ошибкой");
+            if (status === "success") {
+              this.db
+                .update(vpnClients)
+                .set({ externalIp: null, updatedAt: new Date().toISOString() })
+                .where(eq(vpnClients.id, id))
+                .run();
+            }
+          },
+        });
+      } catch (err) {
+        this.setStatus(id, "error", err instanceof Error ? err.message : String(err));
+        throw err;
+      }
+    });
   }
 
   /** Полностью удаляет клиента: гасит туннель на сервере И удаляет строку из БД. */
@@ -306,25 +296,18 @@ export class VpnClientService {
       return { runId: nanoid() };
     }
 
-    const runId = nanoid();
     const target = this.servers.toTarget(serverRow);
+    const del = () => this.db.delete(vpnClients).where(eq(vpnClients.id, id)).run();
 
-    void this.singbox
-      .remove(target, serverRow.port, {
-        onLog: (line, stream) =>
-          this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream }),
-        onDone: (status) => {
-          // Строку удаляем в любом случае — пользователь явно просил удалить совсем.
-          this.db.delete(vpnClients).where(eq(vpnClients.id, id)).run();
-          this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status });
-        },
-      })
-      .catch(() => {
-        this.db.delete(vpnClients).where(eq(vpnClients.id, id)).run();
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status: "failed" });
-      });
-
-    return { runId };
+    return this.runner.run(async (publish) => {
+      try {
+        // Строку удаляем в любом случае — пользователь явно просил удалить совсем.
+        return await this.singbox.remove(target, serverRow.port, { onLog: publish, onDone: del });
+      } catch (err) {
+        del();
+        throw err;
+      }
+    });
   }
 
   /**

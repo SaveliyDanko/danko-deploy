@@ -4,8 +4,9 @@ import {
   SshHardeningInstaller,
   type SshExecutor,
 } from "@dankodeploy/core";
-import { nanoid } from "nanoid";
+import type { DeployStatus } from "@dankodeploy/shared";
 
+import { BackgroundRunner, type LogPublisher } from "./BackgroundRunner.js";
 import type { ServerService } from "./ServerService.js";
 import type { WsHub } from "../ws/WsHub.js";
 
@@ -14,43 +15,45 @@ export class ServerSetupService {
   private readonly docker: DockerInstaller;
   private readonly node: NodeInstaller;
   private readonly hardening: SshHardeningInstaller;
+  private readonly runner: BackgroundRunner;
 
   constructor(
     ssh: SshExecutor,
     private readonly servers: ServerService,
-    private readonly hub: WsHub,
+    hub: WsHub,
   ) {
     this.docker = new DockerInstaller(ssh);
     this.node = new NodeInstaller(ssh);
     this.hardening = new SshHardeningInstaller(ssh);
+    this.runner = new BackgroundRunner(hub);
+  }
+
+  /**
+   * Гоняет installer с колбэками в фоне: лог стримится в WS, по завершении —
+   * disconnect (после bootstrap членство в группах/sshd видно только в новом сеансе).
+   */
+  private runInstaller(
+    serverId: string,
+    exec: (publish: LogPublisher) => Promise<DeployStatus>,
+  ): { runId: string } | { error: string } {
+    const serverRow = this.servers.get(serverId);
+    if (!serverRow) return { error: "Сервер не найден" };
+    return this.runner.run(async (publish) => {
+      try {
+        return await exec(publish);
+      } finally {
+        this.servers.disconnect(serverId);
+      }
+    });
   }
 
   installDocker(serverId: string): { runId: string } | { error: string } {
     const serverRow = this.servers.get(serverId);
     if (!serverRow) return { error: "Сервер не найден" };
-
-    const runId = nanoid();
     const target = this.servers.toTarget(serverRow);
-
-    void this.docker
-      .run(target, {
-        onLog: (line, stream) => {
-          this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream });
-        },
-        onDone: (status) => {
-          // После usermod новое членство в группе docker видно только в новом SSH-сеансе.
-          this.servers.disconnect(serverId);
-          this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status });
-        },
-      })
-      .catch((err) => {
-        const line = `Внутренняя ошибка: ${err instanceof Error ? err.message : String(err)}`;
-        this.servers.disconnect(serverId);
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream: "info" });
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status: "failed" });
-      });
-
-    return { runId };
+    return this.runInstaller(serverId, (publish) =>
+      this.docker.run(target, { onLog: publish, onDone: () => {} }),
+    );
   }
 
   /**
@@ -61,62 +64,20 @@ export class ServerSetupService {
   hardenSsh(serverId: string): { runId: string } | { error: string } {
     const serverRow = this.servers.get(serverId);
     if (!serverRow) return { error: "Сервер не найден" };
-
     const disablePassword =
       serverRow.authMethod === "key" || serverRow.authMethod === "stored-key";
-
-    const runId = nanoid();
     const target = this.servers.toTarget(serverRow);
-
-    void this.hardening
-      .run(
-        target,
-        { disablePassword },
-        {
-          onLog: (line, stream) => {
-            this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream });
-          },
-          onDone: (status) => {
-            // Параметры sshd могли измениться — сбрасываем кэш соединения.
-            this.servers.disconnect(serverId);
-            this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status });
-          },
-        },
-      )
-      .catch((err) => {
-        const line = `Внутренняя ошибка: ${err instanceof Error ? err.message : String(err)}`;
-        this.servers.disconnect(serverId);
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream: "info" });
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status: "failed" });
-      });
-
-    return { runId };
+    return this.runInstaller(serverId, (publish) =>
+      this.hardening.run(target, { disablePassword }, { onLog: publish, onDone: () => {} }),
+    );
   }
 
   installNode(serverId: string): { runId: string } | { error: string } {
     const serverRow = this.servers.get(serverId);
     if (!serverRow) return { error: "Сервер не найден" };
-
-    const runId = nanoid();
     const target = this.servers.toTarget(serverRow);
-
-    void this.node
-      .run(target, {
-        onLog: (line, stream) => {
-          this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream });
-        },
-        onDone: (status) => {
-          this.servers.disconnect(serverId);
-          this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status });
-        },
-      })
-      .catch((err) => {
-        const line = `Внутренняя ошибка: ${err instanceof Error ? err.message : String(err)}`;
-        this.servers.disconnect(serverId);
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream: "info" });
-        this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status: "failed" });
-      });
-
-    return { runId };
+    return this.runInstaller(serverId, (publish) =>
+      this.node.run(target, { onLog: publish, onDone: () => {} }),
+    );
   }
 }
