@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1780604037995,
+      "tag": "0000_natural_nebula",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1780605403851,
+      "tag": "0001_quiet_gideon",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1780647914723,
+      "tag": "0002_lovely_franklin_storm",
+      "breakpoints": true
+    }
+  ]
+}
