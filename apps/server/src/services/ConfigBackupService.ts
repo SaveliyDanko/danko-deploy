@@ -15,6 +15,17 @@ import AdmZip from "adm-zip";
 
 /** Маркер для проверки пароля при импорте (шифруется ключом из пароля). */
 const VERIFIER_PLAINTEXT = "dankodeploy-backup";
+
+/**
+ * Имя файла экспорта: дата + время, чтобы различать бэкапы внутри одного дня.
+ * Формат `dankodeploy-backup-YYYY-MM-DD_HH-MM-SS.zip` — без двоеточий (недопустимы
+ * в именах файлов Windows и проблемны в HTTP Content-Disposition). Время — UTC (как
+ * и createdAt в самом архиве), чтобы имя совпадало со штампом внутри.
+ */
+export function backupFilename(now: Date = new Date()): string {
+  const stamp = now.toISOString().slice(0, 19).replace("T", "_").replace(/:/g, "-");
+  return `dankodeploy-backup-${stamp}.zip`;
+}
 /** Имя config.json и папки с файлами бэкапов внутри ZIP. */
 const CONFIG_ENTRY = "config.json";
 const BACKUPS_DIR_ENTRY = "backups";
@@ -116,8 +127,7 @@ export class ConfigBackupService {
 
     zip.addFile(CONFIG_ENTRY, Buffer.from(JSON.stringify(backup, null, 2), "utf8"));
 
-    const date = new Date().toISOString().slice(0, 10);
-    return { zip: zip.toBuffer(), filename: `dankodeploy-backup-${date}.zip` };
+    return { zip: zip.toBuffer(), filename: backupFilename() };
   }
 
   /**
