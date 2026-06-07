@@ -1,0 +1,24 @@
+# Локальный запуск панели DankoDeploy.
+# Backend в контейнере, фронт собирается отдельно (vite) или раздаётся статикой.
+# Для MVP проще запускать `pnpm dev` локально; этот compose — для варианта "в Docker".
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    environment:
+      PORT: 3001
+      HOST: 0.0.0.0
+      DATABASE_URL: /app/data/dankodeploy.sqlite
+      BACKUP_DIR: /app/backups
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
+      DANKODEPLOY_MASTER_KEY: ${DANKODEPLOY_MASTER_KEY:?Задайте DANKODEPLOY_MASTER_KEY в .env}
+    ports:
+      # Слушаем только localhost хоста — панель наружу не торчит
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+      # Проброс SSH-ключей-агента при необходимости можно добавить здесь
+    restart: unless-stopped

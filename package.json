@@ -1,0 +1,41 @@
+{
+  "name": "dankodeploy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Веб-панель для деплоя, мониторинга и бэкапов своих сервисов на VPS по SSH",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/**\" dev",
+    "dev:server": "pnpm --filter @dankodeploy/server dev",
+    "dev:web": "pnpm --filter @dankodeploy/web dev",
+    "build": "pnpm -r build",
+    "db:push": "pnpm --filter @dankodeploy/db push",
+    "db:generate": "pnpm --filter @dankodeploy/db generate",
+    "db:migrate": "pnpm --filter @dankodeploy/db migrate",
+    "db:studio": "pnpm --filter @dankodeploy/db studio",
+    "gen-password": "pnpm --filter @dankodeploy/server gen-password",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^9.1.2",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "globals": "^15.15.0",
+    "prettier": "^3.8.3",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.60.1",
+    "vitest": "^2.1.9"
+  },
+  "packageManager": "pnpm@11.5.1"
+}

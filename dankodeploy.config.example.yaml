@@ -1,0 +1,46 @@
+# Пример декларативного описания серверов и проектов для DankoDeploy.
+# В MVP сервера и проекты заводятся через UI и хранятся в SQLite; этот файл —
+# справочник по структуре config'а проекта (поле `config` в БД), а также шпаргалка
+# по типам сервисов. Можно использовать как памятку при заполнении формы.
+
+servers:
+  - name: "Прод VPS"
+    host: "203.0.113.10"
+    port: 22
+    username: "deploy"
+    # authMethod: key | password (секреты вводятся в UI и шифруются AES-256-GCM)
+
+projects:
+  # 1) Сервис в docker-compose
+  - name: "shop-api"
+    kind: "docker-compose"
+    stack: "Node + Postgres"
+    config:
+      workdir: "/srv/shop-api"
+      composeFile: "docker-compose.prod.yml" # опционально
+      # deploySteps можно не задавать — дефолт: git pull -> compose pull -> compose up -d --build
+      backupCommand: "docker compose exec -T db pg_dump -U postgres shop | gzip > {{OUT}}"
+      backupCron: "0 3 * * *" # каждый день в 03:00
+
+  # 2) Сервис под systemd
+  - name: "telegram-bot"
+    kind: "systemd"
+    stack: "Python"
+    config:
+      workdir: "/srv/telegram-bot"
+      systemdUnit: "telegram-bot.service"
+      # дефолтные шаги: git pull -> sudo systemctl restart <unit> -> is-active
+
+  # 3) Произвольный процесс с кастомными шагами
+  - name: "static-site"
+    kind: "process"
+    stack: "Vite"
+    config:
+      workdir: "/srv/static-site"
+      deploySteps:
+        - name: "Pull"
+          run: "git pull --ff-only"
+        - name: "Build"
+          run: "npm ci && npm run build"
+        - name: "Reload nginx"
+          run: "sudo systemctl reload nginx"
