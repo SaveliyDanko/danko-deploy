@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Веб-панель для деплоя, мониторинга и бэкапов своих сервисов на VPS по SSH",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "pnpm --parallel --filter \"./apps/**\" dev",
