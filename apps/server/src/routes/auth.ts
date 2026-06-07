@@ -17,24 +17,29 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     return { authenticated: ok, authRequired: true };
   });
 
-  app.post("/api/auth/login", (req, reply) => {
-    if (!ctx.config.authEnabled) return { ok: true };
-    const parsed = loginSchema.safeParse(req.body);
-    if (!parsed.success) return reply.status(400).send({ error: "Укажите пароль" });
-    if (!ctx.auth.verify(parsed.data.password)) {
-      return reply.status(401).send({ error: "Неверный пароль" });
-    }
-    const token = ctx.auth.issueSessionToken();
-    reply.setCookie(COOKIE_NAME, token, {
-      signed: true,
-      httpOnly: true,
-      sameSite: "lax",
-      secure: ctx.config.webOrigin.startsWith("https://"),
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30, // 30 дней
-    });
-    return { ok: true };
-  });
+  // Анти-брутфорс пароля: не больше 5 попыток входа с одного IP за 15 минут (далее 429).
+  app.post(
+    "/api/auth/login",
+    { config: { rateLimit: { max: 5, timeWindow: "15 minutes" } } },
+    (req, reply) => {
+      if (!ctx.config.authEnabled) return { ok: true };
+      const parsed = loginSchema.safeParse(req.body);
+      if (!parsed.success) return reply.status(400).send({ error: "Укажите пароль" });
+      if (!ctx.auth.verify(parsed.data.password)) {
+        return reply.status(401).send({ error: "Неверный пароль" });
+      }
+      const token = ctx.auth.issueSessionToken();
+      reply.setCookie(COOKIE_NAME, token, {
+        signed: true,
+        httpOnly: true,
+        sameSite: "lax",
+        secure: ctx.config.webOrigin.startsWith("https://"),
+        path: "/",
+        maxAge: 60 * 60 * 24 * 30, // 30 дней
+      });
+      return { ok: true };
+    },
+  );
 
   app.post("/api/auth/logout", (_req, reply) => {
     reply.clearCookie(COOKIE_NAME, { path: "/" });

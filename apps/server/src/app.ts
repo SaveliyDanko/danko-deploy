@@ -1,6 +1,7 @@
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
+import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
 
@@ -29,6 +30,9 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   // Загрузка файлов бэкапа. Лимит 2 ГБ — бэкапы БД могут быть крупными.
   await app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024 * 1024 } });
   await app.register(websocket);
+  // Rate-limit включаем глобально, но НЕ применяем по умолчанию (global: false) —
+  // лимитируем точечно (см. config.rateLimit на /api/auth/login против брутфорса).
+  await app.register(rateLimit, { global: false });
 
   // Глобальный обработчик ошибок и 404 — единый формат { error }, не светит стектрейсы.
   registerErrorHandler(app);
