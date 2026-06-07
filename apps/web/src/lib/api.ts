@@ -33,6 +33,7 @@ import type {
   MetricsSnapshot,
   ProjectPublic,
   ServerPublic,
+  StorageBreakdown,
   SshKeyPublic,
   UpdateProjectInput,
 } from "@dankodeploy/shared";
@@ -86,6 +87,8 @@ export const api = {
   hardenSsh: (id: string) =>
     http<{ runId: string }>(`/api/servers/${id}/harden-ssh`, { method: "POST" }),
   serverMetrics: (id: string) => http<MetricsSnapshot>(`/api/servers/${id}/metrics`),
+  /** Детальная разбивка диска (df + docker system df + du). Тяжёлая — по кнопке. */
+  serverStorage: (id: string) => http<StorageBreakdown>(`/api/servers/${id}/storage`),
   /** Последние сохранённые снимки метрик всех серверов (для мгновенного показа). */
   lastMetrics: () => http<MetricsSnapshot[]>("/api/metrics/last"),
   /** Снимок последних `tail` строк логов docker-контейнера на сервере. */

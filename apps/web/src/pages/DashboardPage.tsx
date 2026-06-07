@@ -1,5 +1,6 @@
 import type {
   ContainerInfo,
+  DockerUsageEntry,
   ListeningPort,
   MetricsSnapshot,
   ServerPublic,
@@ -175,9 +176,18 @@ function ServerCard({
                 )}`}
                 percent={memPercent}
               />
-              {snapshot.disks.slice(0, 2).map((d) => (
-                <MeterBar key={d.mount} label={`Диск ${d.mount}`} percent={d.usePercent} />
-              ))}
+              {/* Только корневой диск; остальные ФС — в секции «Хранилище». */}
+              {snapshot.disks
+                .filter((d) => d.mount === "/")
+                .map((d) => (
+                  <MeterBar
+                    key={d.mount}
+                    label={`Диск ${d.mount} — ${formatBytes(d.usedBytes)} / ${formatBytes(
+                      d.totalBytes,
+                    )} (свободно ${formatBytes(d.totalBytes - d.usedBytes)})`}
+                    percent={d.usePercent}
+                  />
+                ))}
             </div>
           </Section>
 
@@ -194,6 +204,9 @@ function ServerCard({
 
           {/* Порты (сворачиваемый блок со своим заголовком) */}
           {(snapshot.ports?.length ?? 0) > 0 && <PortsBlock ports={snapshot.ports} />}
+
+          {/* Хранилище: детальная разбивка диска по кнопке (df + docker df + du) */}
+          <StorageSection serverId={server.id} />
         </>
       )}
 
@@ -392,6 +405,140 @@ function PortsBlock({ ports }: { ports: ListeningPort[] }) {
         })}
       </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Хранилище: детальная разбивка диска по кнопке (тяжёлые df + docker system df + du).
+ * Свёрнуто по умолчанию; данные грузятся только при первом раскрытии и по «Обновить»,
+ * чтобы не нагружать sshd сервера на каждый рендер дашборда.
+ */
+function StorageSection({ serverId }: { serverId: string }) {
+  const [open, setOpen] = useState(false);
+  const storage = useMutation({ mutationFn: () => api.serverStorage(serverId) });
+
+  // Грузим при первом раскрытии (если ещё нет данных и не идёт загрузка).
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    if (next && !storage.data && !storage.isPending) storage.mutate();
+  }
+
+  const data = storage.data;
+  return (
+    <div className="border-t border-edge pt-3">
+      <button
+        className="flex w-full items-center gap-1.5 text-left"
+        onClick={toggle}
+        aria-expanded={open}
+      >
+        <span
+          className="text-[10px] text-slate-500 transition-transform"
+          style={{ display: "inline-block", transform: open ? "rotate(90deg)" : "none" }}
+        >
+          ▶
+        </span>
+        <span className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Хранилище
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-3">
+          <div className="flex items-center gap-2">
+            <button
+              className="btn-ghost px-2 py-0.5 text-xs"
+              onClick={() => storage.mutate()}
+              disabled={storage.isPending}
+            >
+              {storage.isPending ? "Сбор…" : "Обновить"}
+            </button>
+            {data && (
+              <span className="text-[10px] text-slate-500">
+                собрано {formatDate(data.collectedAt)}
+              </span>
+            )}
+          </div>
+
+          {storage.isError && (
+            <div className="text-xs text-rose-400">
+              {storage.error instanceof Error ? storage.error.message : "Ошибка сбора"}
+            </div>
+          )}
+
+          {data && (
+            <>
+              {/* Файловые системы — объём и заполнение */}
+              <div className="space-y-2">
+                {data.disks.map((d) => (
+                  <MeterBar
+                    key={d.mount}
+                    label={`${d.mount} — ${formatBytes(d.usedBytes)} / ${formatBytes(
+                      d.totalBytes,
+                    )} (свободно ${formatBytes(d.totalBytes - d.usedBytes)})`}
+                    percent={d.usePercent}
+                  />
+                ))}
+              </div>
+
+              {/* Docker по категориям */}
+              {data.docker.length > 0 && (
+                <div>
+                  <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">
+                    Docker
+                  </div>
+                  <div className="space-y-1">
+                    {data.docker.map((d) => (
+                      <DockerUsageRow key={d.type} d={d} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Топ каталогов */}
+              {data.dirs.length > 0 && (
+                <div>
+                  <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">
+                    Крупные каталоги
+                  </div>
+                  <div className="space-y-1">
+                    {data.dirs.slice(0, 10).map((d) => (
+                      <div
+                        key={d.path}
+                        className="flex items-center justify-between rounded-md bg-edge/40 px-2 py-1 text-xs"
+                      >
+                        <span className="truncate font-mono text-slate-300">{d.path}</span>
+                        <span className="pl-2 text-slate-400">{formatBytes(d.sizeBytes)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Строка разбивки docker: тип, размер и сколько можно освободить (prune). */
+function DockerUsageRow({ d }: { d: DockerUsageEntry }) {
+  return (
+    <div
+      className="flex items-center justify-between rounded-md bg-edge/40 px-2 py-1 text-xs"
+      title={`${d.active} из ${d.total} активны`}
+    >
+      <span className="text-slate-300">{d.type}</span>
+      <span className="flex items-center gap-2">
+        <span className="text-slate-400">{formatBytes(d.sizeBytes)}</span>
+        {d.reclaimableBytes > 0 && (
+          <span className="text-amber-400" title="Можно освободить через docker prune">
+            −{formatBytes(d.reclaimableBytes)}
+          </span>
+        )}
+      </span>
     </div>
   );
 }

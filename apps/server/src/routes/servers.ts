@@ -84,6 +84,16 @@ export function registerServerRoutes(app: FastifyInstance, ctx: AppContext): voi
     return snapshot;
   });
 
+  // Детальная разбивка диска (df + docker system df + du по каталогам).
+  // Тяжелее обычных метрик — запрашивается ПО КНОПКЕ, не в фоновом опросе.
+  app.get("/api/servers/:id/storage", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = ctx.servers.get(id);
+    if (!row) return reply.status(404).send({ error: "Сервер не найден" });
+    const { StorageCollector } = await import("@dankodeploy/core");
+    return new StorageCollector(ctx.ssh).collect(ctx.servers.toTarget(row));
+  });
+
   // Логи отдельного docker-контейнера (снимок последних строк) — для дашборда.
   app.get("/api/servers/:id/containers/:name/logs", async (req, reply) => {
     const { id, name } = req.params as { id: string; name: string };

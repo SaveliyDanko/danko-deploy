@@ -24,7 +24,9 @@ const COLLECT_CMD = [
   `echo "${SEP}"`,
   "free -m | awk 'NR==2{print $2, $3}'",
   `echo "${SEP}"`,
-  "df -PB1 | awk 'NR>1 && $1 !~ /tmpfs|udev|overlay/ {print $6, $2, $3, $5}'",
+  // Отбрасываем виртуальные ФС по источнику ($1) и служебные mountpoint'ы ($6):
+  // /run/credentials/* (systemd LoadCredential), /dev, /sys, /proc — это не «диски».
+  "df -PB1 | awk 'NR>1 && $1 !~ /tmpfs|udev|overlay|ramfs/ && $6 !~ /^\\/(run|dev|sys|proc)(\\/|$)/ {print $6, $2, $3, $5}'",
   `echo "${SEP}"`,
   'docker ps --format "{{.Names}}\\t{{.Image}}\\t{{.Status}}" 2>/dev/null || true',
   `echo "${SEP}"`,
@@ -59,7 +61,7 @@ function parseMem(block: string): { total: number | null; used: number | null } 
   };
 }
 
-function parseDisks(block: string): DiskUsage[] {
+export function parseDisks(block: string): DiskUsage[] {
   const disks: DiskUsage[] = [];
   for (const line of block.trim().split("\n")) {
     if (!line.trim()) continue;
@@ -67,7 +69,9 @@ function parseDisks(block: string): DiskUsage[] {
     const totalBytes = Number(totalStr);
     const usedBytes = Number(usedStr);
     const usePercent = Number((pctStr ?? "").replace("%", ""));
-    if (!mount || Number.isNaN(totalBytes)) continue;
+    // Отбрасываем строки без mount, с нечисловым или нулевым объёмом — это
+    // служебные mount'ы (например /run/credentials/*), а не реальные диски.
+    if (!mount || Number.isNaN(totalBytes) || totalBytes <= 0) continue;
     disks.push({
       mount,
       totalBytes,

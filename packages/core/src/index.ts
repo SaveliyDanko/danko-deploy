@@ -2,6 +2,7 @@ export * from "./crypto.js";
 export * from "./ssh/SshExecutor.js";
 export * from "./ssh/KeyManager.js";
 export * from "./metrics/MetricsCollector.js";
+export * from "./metrics/StorageCollector.js";
 export * from "./deploy/DeployRunner.js";
 export * from "./deploy/UndeployRunner.js";
 export * from "./deploy/ProvisionRunner.js";

@@ -77,3 +77,48 @@ export const containerLogsSchema = z.object({
   logs: z.string(),
 });
 export type ContainerLogs = z.infer<typeof containerLogsSchema>;
+
+/**
+ * Разбивка использования диска docker'ом (из `docker system df`). Каждая запись —
+ * категория: images / containers / volumes / build cache. reclaimableBytes —
+ * сколько можно освободить через docker prune.
+ */
+export const dockerUsageEntrySchema = z.object({
+  /** Тип: Images / Containers / Local Volumes / Build Cache */
+  type: z.string(),
+  /** Всего объектов */
+  total: z.number(),
+  /** Активных (используемых) */
+  active: z.number(),
+  /** Занято байт */
+  sizeBytes: z.number(),
+  /** Сколько байт можно освободить (prune) */
+  reclaimableBytes: z.number(),
+});
+export type DockerUsageEntry = z.infer<typeof dockerUsageEntrySchema>;
+
+/** Размер одного каталога (из `du`). */
+export const dirUsageSchema = z.object({
+  /** Путь каталога */
+  path: z.string(),
+  /** Занято байт */
+  sizeBytes: z.number(),
+});
+export type DirUsage = z.infer<typeof dirUsageSchema>;
+
+/**
+ * Детальная разбивка использования диска сервера. Запрашивается ПО КНОПКЕ
+ * (не в фоновом 5-сек опросе) — du/docker df тяжелее обычных метрик.
+ * docker/dirs могут быть пустыми, если docker нет или du недоступен.
+ */
+export const storageBreakdownSchema = z.object({
+  serverId: z.string(),
+  collectedAt: z.string(),
+  /** Файловые системы (как в метриках, но полный список) */
+  disks: z.array(diskUsageSchema),
+  /** Разбивка docker по категориям (пусто, если docker недоступен) */
+  docker: z.array(dockerUsageEntrySchema),
+  /** Топ крупных каталогов под корнем (du -d1 /, отсортирован по убыванию) */
+  dirs: z.array(dirUsageSchema),
+});
+export type StorageBreakdown = z.infer<typeof storageBreakdownSchema>;
