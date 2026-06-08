@@ -161,13 +161,30 @@ export class BackupService {
     return { runId };
   }
 
-  /** Стартует restore в фоне и транслирует его шаги в тот же WS-канал логов. */
+  /**
+   * Стартует restore в фоне и транслирует его шаги в WS-канал логов. Помимо этого
+   * пишет запись в историю действий деплоя (deploy_runs, kind=restore) с накоплением
+   * лога — чтобы restore был виден в общей хронологии (как backup) и постфактум можно
+   * было понять, на какой сервер он шёл и где что пошло не так.
+   */
   startRestore(deploymentId: string, backupId: string, artifactNames?: string[]): { runId: string } {
     const runId = nanoid();
+    this.db
+      .insert(deployRuns)
+      .values({ id: runId, deploymentId, kind: "restore", status: "running", log: "" })
+      .run();
+
+    let buffer = "";
     const log: OperationLog = (line, stream = "info") => {
+      buffer += line + "\n";
       this.hub.publish(`deploy:${runId}`, { type: "deploy:log", runId, line, stream });
     };
     const done = (status: "success" | "failed") => {
+      this.db
+        .update(deployRuns)
+        .set({ status, log: buffer, finishedAt: new Date().toISOString() })
+        .where(eq(deployRuns.id, runId))
+        .run();
       this.hub.publish(`deploy:${runId}`, { type: "deploy:done", runId, status });
     };
 

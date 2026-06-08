@@ -8,9 +8,10 @@ export type DeployStatus = z.infer<typeof deployStatusSchema>;
  * - deploy: обычный деплой (git pull + up);
  * - provision: первичная раскатка (git clone);
  * - undeploy: снятие сервиса (down);
- * - backup: создание бэкапа.
+ * - backup: создание бэкапа;
+ * - restore: восстановление из бэкапа.
  */
-export const runKindSchema = z.enum(["deploy", "provision", "undeploy", "backup"]);
+export const runKindSchema = z.enum(["deploy", "provision", "undeploy", "backup", "restore"]);
 export type RunKind = z.infer<typeof runKindSchema>;
 
 /** Запись истории действий (привязана к деплою = проект×сервер) */

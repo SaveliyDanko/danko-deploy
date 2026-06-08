@@ -141,8 +141,8 @@ export const deployRuns = sqliteTable("deploy_runs", {
   deploymentId: text("deployment_id")
     .notNull()
     .references(() => deployments.id, { onDelete: "cascade" }),
-  /** Что именно было сделано: деплой / первичная раскатка / снятие / бэкап. */
-  kind: text("kind", { enum: ["deploy", "provision", "undeploy", "backup"] })
+  /** Что именно было сделано: деплой / первичная раскатка / снятие / бэкап / восстановление. */
+  kind: text("kind", { enum: ["deploy", "provision", "undeploy", "backup", "restore"] })
     .notNull()
     .default("deploy"),
   status: text("status", { enum: ["running", "success", "failed"] }).notNull(),
