@@ -2,7 +2,7 @@ import type { VpnReadiness } from "@dankodeploy/shared";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { EmptyState, MeterBar, Spinner, StatusBadge } from "../components/ui.js";
+import { ConfirmModal, EmptyState, MeterBar, Spinner, StatusBadge } from "../components/ui.js";
 import { api } from "../lib/api.js";
 import { openDeployLogDrawer } from "../lib/deployLogDrawer.js";
 import { formatDate } from "../lib/format.js";
@@ -18,12 +18,14 @@ function vpnStatusLabel(status: string): string {
   return map[status] ?? status;
 }
 
-export function VpnPage() {
+/** Секция «VPN-сервер»: раскатка Outline/Shadowsocks на серверы. Заголовок даёт VpnPage. */
+export function VpnServerSection() {
   const installations = useQuery({ queryKey: ["vpn"], queryFn: api.listVpn });
   const servers = useQuery({ queryKey: ["servers"], queryFn: api.listServers });
 
   const [selectedServer, setSelectedServer] = useState("");
   const [readiness, setReadiness] = useState<VpnReadiness | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
 
   // Сервер можно выбрать только без уже активной/раскатываемой Outline-инсталляции.
   const busyServerIds = new Set(
@@ -56,6 +58,7 @@ export function VpnPage() {
     mutationFn: (id: string) => api.removeVpn(id),
     onSuccess: (res, id) => {
       const inst = installations.data?.find((v) => v.id === id);
+      setConfirmRemoveId(null);
       openDeployLogDrawer({
         runId: res.runId,
         projectName: inst?.host ?? "сервер",
@@ -70,10 +73,6 @@ export function VpnPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">VPN</h1>
-      </div>
-
       {/* --- Раскатка на сервер --- */}
       <div className="card space-y-4">
         <h2 className="text-lg font-semibold">Развернуть VPN (Outline / Shadowsocks)</h2>
@@ -199,11 +198,7 @@ export function VpnPage() {
               <button
                 className="btn-ghost text-rose-400"
                 disabled={remove.isPending || v.status === "installing"}
-                onClick={() => {
-                  if (confirm(`Удалить VPN с сервера «${serverName(v.serverId)}»?`)) {
-                    remove.mutate(v.id);
-                  }
-                }}
+                onClick={() => setConfirmRemoveId(v.id)}
               >
                 Удалить
               </button>
@@ -211,6 +206,35 @@ export function VpnPage() {
           ))}
         </div>
       </div>
+
+      {confirmRemoveId && (
+        <ConfirmModal
+          title="Удалить VPN с сервера?"
+          confirmLabel="Удалить VPN"
+          pending={remove.isPending}
+          error={remove.isError ? remove.error.message : null}
+          onConfirm={() => remove.mutate(confirmRemoveId)}
+          onClose={() => setConfirmRemoveId(null)}
+        >
+          {(() => {
+            const inst = installations.data?.find((v) => v.id === confirmRemoveId);
+            return (
+              <>
+                <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-rose-100">
+                  Outline будет снят с сервера{" "}
+                  <span className="font-semibold">{serverName(inst?.serverId ?? "")}</span>:
+                  контейнеры остановлены, каталог <code className="rounded bg-ink px-1">/opt/outline</code>{" "}
+                  очищен.
+                </div>
+                <p className="mt-2 text-sm text-slate-400">
+                  Клиентские ключи доступа перестанут работать. Удаление идёт по SSH — за процессом
+                  можно следить в логе.
+                </p>
+              </>
+            );
+          })()}
+        </ConfirmModal>
+      )}
     </div>
   );
 }

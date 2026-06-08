@@ -20,8 +20,7 @@ import { ProjectsPage } from "./pages/ProjectsPage.js";
 import { ServerDetailPage } from "./pages/ServerDetailPage.js";
 import { ServerTerminalPage } from "./pages/ServerTerminalPage.js";
 import { ServersPage } from "./pages/ServersPage.js";
-import { VpnClientPage } from "./pages/VpnClientPage.js";
-import { VpnPage } from "./pages/VpnPage.js";
+import { VpnPage } from "./pages/VpnHubPage.js";
 
 import "./index.css";
 
@@ -67,7 +66,8 @@ const router = createBrowserRouter([
       { path: "git-keys", element: <GitKeysPage /> },
       { path: "ai", element: <AiAgentsPage /> },
       { path: "vpn", element: <VpnPage /> },
-      { path: "vpn-client", element: <VpnClientPage /> },
+      // Старая страница объединена в табы /vpn — сохраняем ссылки/закладки.
+      { path: "vpn-client", element: <Navigate to="/vpn?tab=client" replace /> },
       { path: "backup", element: <BackupPage /> },
       {
         path: "docs",

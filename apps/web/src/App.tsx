@@ -20,7 +20,6 @@ type NavSection =
   | "git-keys"
   | "ai"
   | "vpn"
-  | "vpn-client"
   | "backup"
   | "docs";
 
@@ -41,7 +40,6 @@ const navItems: NavItem[] = [
   { to: "/git-keys", label: "Git-ключи", section: "git-keys", remember: true },
   { to: "/ai", label: "AI", section: "ai", remember: true },
   { to: "/vpn", label: "VPN", section: "vpn", remember: true },
-  { to: "/vpn-client", label: "VPN-клиент", section: "vpn-client", remember: true },
   { to: "/backup", label: "Бэкап", section: "backup", remember: true },
   { to: "/docs", label: "Docs", section: "docs", remember: true },
 ];

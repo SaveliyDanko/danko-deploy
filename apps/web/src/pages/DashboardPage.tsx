@@ -283,7 +283,7 @@ function VpnClientRow({ client }: { client: VpnClientPublic }) {
   };
   return (
     <Link
-      to="/vpn-client"
+      to="/vpn?tab=client"
       className="flex items-center justify-between gap-2 rounded-md bg-edge/40 px-2 py-1.5 text-xs hover:bg-edge/70"
       title={client.lastError ?? undefined}
     >

@@ -7,7 +7,7 @@ import type {
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { EmptyState, MeterBar, Spinner, StatusBadge } from "../components/ui.js";
+import { ConfirmModal, EmptyState, MeterBar, Spinner, StatusBadge } from "../components/ui.js";
 import { api } from "../lib/api.js";
 import { openDeployLogDrawer } from "../lib/deployLogDrawer.js";
 import { formatDate } from "../lib/format.js";
@@ -23,7 +23,8 @@ function clientStatusLabel(status: string): string {
   return map[status] ?? status;
 }
 
-export function VpnClientPage() {
+/** Секция «VPN-клиент»: VPS гонит трафик через провайдера (sing-box). Заголовок даёт VpnPage. */
+export function VpnClientSection() {
   const clients = useQuery({ queryKey: ["vpnClient"], queryFn: api.listVpnClients });
   const servers = useQuery({ queryKey: ["servers"], queryFn: api.listServers });
 
@@ -34,6 +35,8 @@ export function VpnClientPage() {
   const [readiness, setReadiness] = useState<VpnClientReadiness | null>(null);
   const [ipResult, setIpResult] = useState<Record<string, VpnClientExitInfo>>({});
   const [serviceResult, setServiceResult] = useState<Record<string, VpnServiceCheck[]>>({});
+  const [confirmDisableId, setConfirmDisableId] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
 
   // Сервер занят, если на нём уже есть невыключенный клиент.
   const busyServerIds = new Set(
@@ -98,7 +101,10 @@ export function VpnClientPage() {
 
   const disable = useMutation({
     mutationFn: (id: string) => api.disableVpnClient(id),
-    onSuccess: (res, id) => openCardLog(id, res.runId, "Выключение VPN-клиента"),
+    onSuccess: (res, id) => {
+      setConfirmDisableId(null);
+      openCardLog(id, res.runId, "Выключение VPN-клиента");
+    },
   });
 
   const enable = useMutation({
@@ -108,7 +114,10 @@ export function VpnClientPage() {
 
   const remove = useMutation({
     mutationFn: (id: string) => api.removeVpnClient(id),
-    onSuccess: (res, id) => openCardLog(id, res.runId, "Удаление VPN-клиента"),
+    onSuccess: (res, id) => {
+      setConfirmRemoveId(null);
+      openCardLog(id, res.runId, "Удаление VPN-клиента");
+    },
   });
 
   // Локации для смены: тянем по кнопке на карточке (ленивая загрузка по клиенту).
@@ -131,7 +140,6 @@ export function VpnClientPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">VPN-клиент</h1>
 
       <div className="card space-y-4">
         <h2 className="text-lg font-semibold">Подключить сервер к VPN-провайдеру</h2>
@@ -361,11 +369,7 @@ export function VpnClientPage() {
                         <button
                           className="btn-ghost text-xs text-rose-400"
                           disabled={disable.isPending}
-                          onClick={() => {
-                            if (confirm(`Выключить VPN на «${serverName(c.serverId)}»? Трафик вернётся напрямую.`)) {
-                              disable.mutate(c.id);
-                            }
-                          }}
+                          onClick={() => setConfirmDisableId(c.id)}
                         >
                           Выключить
                         </button>
@@ -383,11 +387,7 @@ export function VpnClientPage() {
                         <button
                           className="btn-ghost text-xs text-rose-400"
                           disabled={remove.isPending}
-                          onClick={() => {
-                            if (confirm(`Удалить VPN-клиент с «${serverName(c.serverId)}» совсем? sing-box будет снят с сервера.`)) {
-                              remove.mutate(c.id);
-                            }
-                          }}
+                          onClick={() => setConfirmRemoveId(c.id)}
                         >
                           Удалить
                         </button>
@@ -438,6 +438,51 @@ export function VpnClientPage() {
           })}
         </div>
       </div>
+
+      {confirmDisableId && (
+        <ConfirmModal
+          title="Выключить VPN?"
+          confirmLabel="Выключить"
+          pending={disable.isPending}
+          error={disable.isError ? disable.error.message : null}
+          onConfirm={() => disable.mutate(confirmDisableId)}
+          onClose={() => setConfirmDisableId(null)}
+        >
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
+            VPN на сервере{" "}
+            <span className="font-semibold">
+              {serverName(clients.data?.find((c) => c.id === confirmDisableId)?.serverId ?? "")}
+            </span>{" "}
+            будет выключен: sing-box остановлен, kernel-страховка снята. Трафик сервера снова пойдёт
+            напрямую (без VPN).
+          </div>
+          <p className="mt-2 text-sm text-slate-400">
+            Конфигурация сохранится — VPN можно включить снова кнопкой «Включить».
+          </p>
+        </ConfirmModal>
+      )}
+
+      {confirmRemoveId && (
+        <ConfirmModal
+          title="Удалить VPN-клиент?"
+          confirmLabel="Удалить"
+          pending={remove.isPending}
+          error={remove.isError ? remove.error.message : null}
+          onConfirm={() => remove.mutate(confirmRemoveId)}
+          onClose={() => setConfirmRemoveId(null)}
+        >
+          <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-rose-100">
+            VPN-клиент будет полностью снят с сервера{" "}
+            <span className="font-semibold">
+              {serverName(clients.data?.find((c) => c.id === confirmRemoveId)?.serverId ?? "")}
+            </span>
+            : sing-box удалён, kernel-страховка снята, запись стёрта.
+          </div>
+          <p className="mt-2 text-sm text-slate-400">
+            Чтобы вернуть VPN, его придётся настроить заново (subscription-ссылка не сохраняется).
+          </p>
+        </ConfirmModal>
+      )}
     </div>
   );
 }
