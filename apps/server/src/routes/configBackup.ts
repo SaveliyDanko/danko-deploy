@@ -54,6 +54,7 @@ export function registerConfigBackupRoutes(app: FastifyInstance, ctx: AppContext
     try {
       const result = ctx.configBackup.import(password, fileBuffer, parsedMode.data);
       ctx.scheduler.reload(); // могли измениться проекты/деплои с backupCron
+      ctx.vpnClientScheduler.reload(); // могли импортироваться VPN-клиенты с syncCron
       return result;
     } catch (err) {
       // Неверный пароль / повреждённый файл — 400 с понятным текстом.

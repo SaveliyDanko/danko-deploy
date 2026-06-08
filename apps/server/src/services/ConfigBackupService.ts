@@ -53,6 +53,14 @@ const TABLES: TableSpec[] = [
   { key: "projects", table: "projects", pk: "id", secretCols: [] },
   { key: "deployments", table: "deployments", pk: "id", secretCols: [] },
   { key: "projectEnv", table: "project_env", pk: "project_id", secretCols: ["content_enc"] },
+  // VPN — после servers (FK server_id). Секреты: management apiUrl / subscription-ссылка.
+  {
+    key: "vpnInstallations",
+    table: "vpn_installations",
+    pk: "id",
+    secretCols: ["api_url_enc"],
+  },
+  { key: "vpnClients", table: "vpn_clients", pk: "id", secretCols: ["subscription_url_enc"] },
   // backups — последней (FK на projects/deployments). Файлы артефактов в ZIP.
   { key: "backups", table: "backups", pk: "id", secretCols: [] },
 ];
@@ -157,6 +165,8 @@ export class ConfigBackupService {
       projects: 0,
       deployments: 0,
       projectEnv: 0,
+      vpnInstallations: 0,
+      vpnClients: 0,
       backups: 0,
     };
 

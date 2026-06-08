@@ -18,6 +18,13 @@ export const configBackupDataSchema = z.object({
   deployments: z.array(rowSchema).default([]),
   projectEnv: z.array(rowSchema).default([]),
   /**
+   * VPN-инсталляции (Outline) и VPN-клиенты (sing-box). Опционально — старые
+   * бэкапы их не содержат. Секреты (management apiUrl, subscription-ссылка)
+   * перешифрованы под пароль, как и прочие *_enc.
+   */
+  vpnInstallations: z.array(rowSchema).default([]),
+  vpnClients: z.array(rowSchema).default([]),
+  /**
    * История бэкапов проектов (таблица backups). Опционально — старые бэкапы (v1)
    * её не содержат. Сами файлы артефактов лежат в ZIP рядом (см. артефакт path).
    */
@@ -76,6 +83,8 @@ export const importResultSchema = z.object({
     projects: z.number(),
     deployments: z.number(),
     projectEnv: z.number(),
+    vpnInstallations: z.number(),
+    vpnClients: z.number(),
     backups: z.number(),
   }),
   /** Сколько файлов бэкапов восстановлено на диск из ZIP. */

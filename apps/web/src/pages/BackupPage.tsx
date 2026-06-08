@@ -7,7 +7,7 @@ import { api } from "../lib/api.js";
 
 /**
  * Окно «Бэкап»: экспорт/импорт всей конфигурации панели (серверы, ключи, проекты,
- * деплои, .env и опционально файлы бэкапов). Секреты зашифрованы под пароль экспорта.
+ * деплои, .env, VPN и опционально файлы бэкапов). Секреты зашифрованы под пароль экспорта.
  */
 export function BackupPage() {
   return (
@@ -15,9 +15,9 @@ export function BackupPage() {
       <h1 className="text-xl font-semibold">Бэкап конфигурации</h1>
       <p className="text-sm text-slate-400">
         Сохраните или восстановите всю конфигурацию DankoDeploy: серверы, SSH- и Git-ключи, проекты,
-        деплои, сохранённые <code className="rounded bg-ink px-1">.env</code> и историю бэкапов.
-        Приватные ключи, пароли серверов и .env <b>зашифрованы под пароль экспорта</b> — в открытом
-        виде их в файле нет. Экспорт — ZIP-архив.
+        деплои, сохранённые <code className="rounded bg-ink px-1">.env</code>, VPN (Outline и
+        sing-box-клиенты) и историю бэкапов. Приватные ключи, пароли серверов, .env и секреты VPN{" "}
+        <b>зашифрованы под пароль экспорта</b> — в открытом виде их в файле нет. Экспорт — ZIP-архив.
       </p>
 
       <ExportBlock />
@@ -210,7 +210,8 @@ function ImportBlock() {
           <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-100">
             ✔ Импорт завершён ({result.mode}). Загружено: серверы {counts.servers}, SSH-ключи{" "}
             {counts.sshKeys}, Git-ключи {counts.gitKeys}, проекты {counts.projects}, деплои{" "}
-            {counts.deployments}, .env {counts.projectEnv}, бэкапы {counts.backups}
+            {counts.deployments}, .env {counts.projectEnv}, VPN {counts.vpnInstallations}, VPN-клиенты{" "}
+            {counts.vpnClients}, бэкапы {counts.backups}
             {result.restoredFiles > 0 ? ` (файлов восстановлено: ${result.restoredFiles})` : ""}.
           </div>
         )}
