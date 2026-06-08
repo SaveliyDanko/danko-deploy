@@ -300,7 +300,47 @@ function BackupRestoreSection() {
           временной копии данных.
         </div>
       </div>
+
+      <AgentPromptBlock />
     </section>
+  );
+}
+
+/**
+ * Готовый промт для LLM-агента: отправьте его в другой репозиторий, агент изучит проект
+ * и вернёт артефакты backupArtifacts + команды backup/restore под формат DankoDeploy.
+ * Используется в разделе backup/restore и в отдельной вкладке «LLM-спека».
+ */
+function AgentPromptBlock() {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    await navigator.clipboard.writeText(BACKUP_RESTORE_AGENT_SPEC);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  return (
+    <div className="card space-y-3 border-indigo-500/30 bg-indigo-500/5">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+          <span aria-hidden>🤖</span> Промт для LLM-агента
+        </h3>
+        <button className="btn-primary px-3 py-1 text-xs" onClick={copy}>
+          {copied ? "Скопировано" : "Скопировать промт"}
+        </button>
+      </div>
+      <p className="text-sm text-slate-400">
+        Не хотите составлять команды вручную? Скопируйте этот промт и отправьте его LLM-агенту
+        (Claude Code, Codex и т.п.) в репозитории вашего проекта. Агент изучит проект, определит, что
+        бэкапить (БД / media / volumes), и вернёт готовые{" "}
+        <code className="rounded bg-ink px-1">backupArtifacts</code> с командами backup/restore,
+        которые останется вставить в форму проекта DankoDeploy.
+      </p>
+      <pre className="max-h-[420px] overflow-y-auto whitespace-pre-wrap rounded-lg bg-ink p-3 text-xs leading-relaxed text-slate-300">
+        {BACKUP_RESTORE_AGENT_SPEC}
+      </pre>
+    </div>
   );
 }
 
@@ -363,33 +403,12 @@ function ExamplesSection() {
 }
 
 function AgentPromptSection() {
-  const [copied, setCopied] = useState(false);
-
-  const copy = async () => {
-    await navigator.clipboard.writeText(BACKUP_RESTORE_AGENT_SPEC);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  };
-
   return (
     <section id="agent-spec" className="scroll-mt-20 space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Спецификация для LLM-агента
-        </h2>
-        <button className="btn-primary px-3 py-1 text-xs" onClick={copy}>
-          {copied ? "Скопировано" : "Скопировать"}
-        </button>
-      </div>
-      <div className="card space-y-3">
-        <p className="text-sm text-slate-400">
-          Отправьте этот текст агенту в другом репозитории. Он должен вернуть готовые команды и гайд,
-          который можно перенести в форму проекта DankoDeploy.
-        </p>
-        <pre className="max-h-[520px] overflow-y-auto whitespace-pre-wrap rounded-lg bg-ink p-3 text-xs leading-relaxed text-slate-300">
-          {BACKUP_RESTORE_AGENT_SPEC}
-        </pre>
-      </div>
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+        Спецификация для LLM-агента
+      </h2>
+      <AgentPromptBlock />
     </section>
   );
 }

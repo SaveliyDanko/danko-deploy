@@ -18,9 +18,10 @@ const kindLabels = {
 /** Подпись и цвет ярлыка типа действия в истории. */
 const runKindMeta: Record<RunKind, { label: string; cls: string }> = {
   deploy: { label: "Deploy", cls: "bg-indigo-500/15 text-indigo-300" },
-  provision: { label: "Раскатка", cls: "bg-sky-500/15 text-sky-300" },
+  provision: { label: "Клон репо", cls: "bg-sky-500/15 text-sky-300" },
   undeploy: { label: "Undeploy", cls: "bg-amber-500/15 text-amber-300" },
   backup: { label: "Backup", cls: "bg-emerald-500/15 text-emerald-300" },
+  restore: { label: "Restore", cls: "bg-fuchsia-500/15 text-fuchsia-300" },
 };
 
 function RunKindBadge({ kind }: { kind: RunKind }) {
@@ -36,6 +37,7 @@ export function DeploymentDetailPage() {
   const navigate = useNavigate();
   const [confirmClearDeploys, setConfirmClearDeploys] = useState(false);
   const [confirmUndeploy, setConfirmUndeploy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const detail = useQuery({ queryKey: ["deployment", id], queryFn: () => api.getDeployment(id) });
   const deploys = useQuery({ queryKey: ["deploys", id], queryFn: () => api.deployHistory(id) });
@@ -74,7 +76,7 @@ export function DeploymentDetailPage() {
   });
   const provision = useMutation({
     mutationFn: () => api.provisionDeployment(id),
-    onSuccess: (res) => openLog(res.runId, "Раскатка"),
+    onSuccess: (res) => openLog(res.runId, "Клонирование репозитория"),
   });
   const clearDeploys = useMutation({
     mutationFn: () => api.clearDeployHistory(id),
@@ -123,10 +125,10 @@ export function DeploymentDetailPage() {
             <button
               className="btn-ghost"
               disabled={provision.isPending}
-              title="Склонировать репозиторий в рабочую директорию (первичная раскатка)"
+              title="Первичная загрузка кода: git clone репозитория в рабочую директорию. Делается один раз перед первым деплоем (workdir должен быть пуст)."
               onClick={() => provision.mutate()}
             >
-              {provision.isPending ? <Spinner /> : "Раскатить"}
+              {provision.isPending ? <Spinner /> : "Клонировать репо"}
             </button>
           )}
           <button
@@ -154,16 +156,7 @@ export function DeploymentDetailPage() {
           <button
             className="btn-ghost text-rose-400 hover:bg-rose-500/10"
             disabled={removeDeployment.isPending}
-            onClick={() => {
-              if (
-                confirm(
-                  `Удалить деплой «${project.name} → ${serverName}»?\n\n` +
-                    "Будет удалена история раскаток этого деплоя. Карточка проекта, его .env и\n" +
-                    "файлы/контейнеры на сервере НЕ затрагиваются.",
-                )
-              )
-                removeDeployment.mutate();
-            }}
+            onClick={() => setConfirmDelete(true)}
           >
             {removeDeployment.isPending ? <Spinner /> : "Удалить"}
           </button>
@@ -347,6 +340,42 @@ export function DeploymentDetailPage() {
                 onClick={() => clearDeploys.mutate()}
               >
                 {clearDeploys.isPending ? <Spinner /> : "Очистить"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {confirmDelete && (
+        <Modal title="Удалить деплой?" onClose={() => setConfirmDelete(false)}>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-100">
+              Деплой <span className="font-semibold">{project.name} → {serverName}</span> будет удалён
+              вместе с историей раскаток.
+            </div>
+            <p className="text-sm text-slate-400">
+              Карточка проекта, его .env и файлы/контейнеры на сервере {serverName}{" "}
+              <span className="font-medium text-slate-300">не затрагиваются</span>.
+            </p>
+            {removeDeployment.isError && (
+              <div className="rounded-lg bg-rose-500/10 p-2 text-xs text-rose-300">
+                {(removeDeployment.error).message}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                className="btn-ghost"
+                disabled={removeDeployment.isPending}
+                onClick={() => setConfirmDelete(false)}
+              >
+                Отмена
+              </button>
+              <button
+                className="btn-danger"
+                disabled={removeDeployment.isPending}
+                onClick={() => removeDeployment.mutate()}
+              >
+                {removeDeployment.isPending ? <Spinner /> : "Удалить деплой"}
               </button>
             </div>
           </div>
@@ -545,8 +574,9 @@ function RestoreModal({
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
           <div className="font-medium">Перед восстановлением</div>
           <div className="mt-1 text-xs leading-relaxed">
-            Выбранные артефакты будут загружены на сервер этого деплоя, после чего выполнится их
-            restore-команда. Текущие данные могут быть перезаписаны.
+            Выбранные артефакты будут загружены на сервер{" "}
+            <span className="font-semibold">{targetLabel}</span> и там выполнится их restore-команда.
+            Текущие данные на этом сервере могут быть перезаписаны.
           </div>
         </div>
 

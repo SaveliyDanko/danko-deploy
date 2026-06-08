@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { EmptyState, Modal, Spinner, StatusBadge } from "../components/ui.js";
+import { ConfirmModal, EmptyState, Modal, Spinner, StatusBadge } from "../components/ui.js";
 import { api } from "../lib/api.js";
 import { openDeployLogDrawer } from "../lib/deployLogDrawer.js";
 import { formatBytes, formatDate } from "../lib/format.js";
@@ -22,6 +22,7 @@ export function ProjectDetailPage() {
   const [editing, setEditing] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const project = useQuery({ queryKey: ["project", id], queryFn: () => api.getProject(id) });
   const servers = useQuery({ queryKey: ["servers"], queryFn: api.listServers });
@@ -67,25 +68,9 @@ export function ProjectDetailPage() {
             Изменить
           </button>
           <button
-            className="btn-primary"
-            title="Развернуть проект на сервере — во вкладке «Деплои»"
-            onClick={() => navigate("/deployments")}
-          >
-            Развернуть
-          </button>
-          <button
             className="btn-ghost text-rose-400 hover:bg-rose-500/10"
             disabled={removeProject.isPending}
-            onClick={() => {
-              if (
-                confirm(
-                  `Удалить проект «${p.name}» из панели?\n\n` +
-                    "Будут удалены карточка, все его деплои, история и сохранённый .env.\n" +
-                    "Файлы, контейнеры и данные на серверах НЕ затрагиваются.",
-                )
-              )
-                removeProject.mutate();
-            }}
+            onClick={() => setConfirmDelete(true)}
           >
             {removeProject.isPending ? <Spinner /> : "Удалить"}
           </button>
@@ -194,6 +179,26 @@ export function ProjectDetailPage() {
             void qc.invalidateQueries({ queryKey: ["project", id] });
           }}
         />
+      )}
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="Удалить проект?"
+          confirmLabel="Удалить проект"
+          pending={removeProject.isPending}
+          error={removeProject.isError ? removeProject.error.message : null}
+          onConfirm={() => removeProject.mutate()}
+          onClose={() => setConfirmDelete(false)}
+        >
+          <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-rose-100">
+            Проект <span className="font-semibold">{p.name}</span> будет удалён из панели вместе со
+            всеми деплоями, историей и сохранённым <code className="rounded bg-ink px-1">.env</code>.
+          </div>
+          <p className="mt-2 text-sm text-slate-400">
+            Файлы, контейнеры и данные на серверах не затрагиваются — удаляется только конфигурация в
+            DankoDeploy.
+          </p>
+        </ConfirmModal>
       )}
     </div>
   );
@@ -642,6 +647,10 @@ function RestoreProjectBackupModal({
   });
 
   const serverName = (serverId: string) => servers.find((s) => s.id === serverId)?.name ?? serverId;
+  const selectedDeployment = deployments.find((d) => d.id === deploymentId);
+  const targetLabel = selectedDeployment
+    ? `${projectName} → ${serverName(selectedDeployment.serverId)}`
+    : "—";
   const toggle = (name: string) =>
     setSelected((s) => {
       const next = new Set(s);
@@ -659,8 +668,9 @@ function RestoreProjectBackupModal({
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
           <div className="font-medium">Перед восстановлением</div>
           <div className="mt-1 text-xs leading-relaxed">
-            Выбранные артефакты будут загружены на сервер выбранного деплоя, после чего выполнится их
-            restore-команда. Текущие данные могут быть перезаписаны.
+            Выбранные артефакты будут загружены на сервер{" "}
+            <span className="font-semibold">{targetLabel}</span> и там выполнится их restore-команда.
+            Текущие данные на этом сервере могут быть перезаписаны.
           </div>
         </div>
         <div>
@@ -935,27 +945,37 @@ function EnvSection({ projectId, workdir }: { projectId: string; workdir: string
 
   return (
     <section>
-      {/* Сворачиваемый заголовок с короткой сводкой состояния .env. */}
+      {/* Заметный сворачиваемый заголовок-карточка с короткой сводкой состояния .env. */}
       <button
-        className="mb-2 flex w-full items-center gap-1.5 text-left"
+        className={`mb-2 flex w-full items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition ${
+          open
+            ? "border-indigo-500/40 bg-indigo-500/10"
+            : "border-edge bg-panel/60 hover:border-indigo-500/40 hover:bg-indigo-500/5"
+        }`}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
+        <span aria-hidden className="text-base">
+          ⚙️
+        </span>
+        <span className="text-sm font-semibold text-slate-100">Переменные окружения (.env)</span>
         <span
-          className="text-[10px] text-slate-500 transition-transform"
+          className={`rounded px-2 py-0.5 text-xs font-medium ${
+            dirty
+              ? "bg-amber-500/15 text-amber-300"
+              : hasContent
+                ? "bg-emerald-500/15 text-emerald-300"
+                : "bg-slate-500/15 text-slate-400"
+          }`}
+        >
+          {dirty ? "несохранённые изменения" : hasContent ? "задан" : "не задан"}
+        </span>
+        <span
+          className="ml-auto text-[10px] text-slate-400 transition-transform"
           style={{ display: "inline-block", transform: open ? "rotate(90deg)" : "none" }}
         >
           ▶
         </span>
-        <span className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Переменные окружения (.env)
-        </span>
-        {!open && (
-          <span className="ml-1 text-xs font-normal text-slate-500">
-            {dirty ? "несохранённые изменения" : hasContent ? "задан" : "не задан"}
-          </span>
-        )}
-        {!open && dirty && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
       </button>
 
       {open && (
