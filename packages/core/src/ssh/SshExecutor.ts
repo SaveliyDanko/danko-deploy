@@ -134,6 +134,15 @@ export class SshExecutor {
       readyTimeout: 15_000,
       keepaliveInterval: 10_000,
     });
+    // Критично: ssh2-клиент пуловый и живёт долго. Асинхронные ошибки на нём
+    // (keepalive-timeout простаивающего соединения, обрыв сети) эмитятся как
+    // событие 'error' ВНЕ контекста промиса — необработанное оно роняет весь
+    // процесс сервера. Гасим: логируем и выкидываем протухшее соединение из
+    // пула, чтобы getConnection пересоздал его при следующем обращении.
+    ssh.connection?.on("error", (err) => {
+      console.error(`[ssh] соединение к ${target.id} (${target.host}) упало:`, classifySshError(err).message);
+      this.disconnect(target.id);
+    });
     return ssh;
   }
 
