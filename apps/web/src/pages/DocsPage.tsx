@@ -59,6 +59,104 @@ backupCron: "0 3 * * *"
 - ...
 `;
 
+const TRAEFIK_AGENT_SPEC = `Переделай docker-compose этого проекта под общий reverse-proxy Traefik для деплоя через DankoDeploy.
+
+Контекст:
+- На VPS работает НЕСКОЛЬКО сайтов. Единый Traefik (отдельный сервис) слушает порты 80 и 443.
+  Сами сайты порты наружу НЕ публикуют — Traefik ходит к ним по внутренней docker-сети "web"
+  и разводит по доменам. Это убирает конфликт "Bind for 0.0.0.0:80 failed: port is already allocated".
+- Сеть "web" уже создана на сервере вручную (docker network create web) и объявляется как external.
+- Traefik настроен с certresolver по имени "le" (Let's Encrypt) и entrypoints "web" (:80) и "websecure" (:443),
+  http автоматически редиректится на https.
+- DankoDeploy раскатывает проект командой docker compose up -d --build в workdir проекта.
+
+Что нужно сделать с docker-compose проекта:
+1. Найди веб-сервис(ы), которые сейчас публикуют порты наружу (секция ports: с 80/443/8080 и т.п.).
+2. У каждого ТАКОГО сервиса:
+   - УБЕРИ секцию ports: целиком (публикация наружу теперь только у Traefik).
+   - Подключи сервис к сетям: [web, default] (web — для Traefik, default — для связи внутри проекта).
+   - Добавь labels (подставь реальные домен и порт, на котором сервис слушает ВНУТРИ контейнера):
+     - traefik.enable=true
+     - traefik.docker.network=web
+     - traefik.http.routers.<ROUTER>.rule=Host(\`example.com\`)
+     - traefik.http.routers.<ROUTER>.entrypoints=websecure
+     - traefik.http.routers.<ROUTER>.tls.certresolver=le
+     - traefik.http.services.<ROUTER>.loadbalancer.server.port=<ВНУТРЕННИЙ_ПОРТ>
+   - <ROUTER> — короткое уникальное имя (латиница), напр. имя сайта. Должно быть уникальным на всём VPS.
+   - traefik.docker.network=web обязателен, потому что сервис подключён сразу к двум сетям, и Traefik должен явно брать IP контейнера из общей external-сети "web", а не из project default network.
+3. Сервисы БЕЗ внешнего доступа (БД, redis, воркеры) не трогай — они и так общаются по сети проекта.
+4. Внизу файла добавь объявление внешней сети:
+     networks:
+       web:
+         external: true
+5. Определи ВНУТРЕННИЙ порт сервиса по Dockerfile/конфигу (EXPOSE, порт nginx/приложения) — это порт
+   ВНУТРИ контейнера, НЕ хостовый. Если в исходном ports было "80:80" — внутренний порт 80; "8080:3000" — 3000.
+6. Не добавляй сам Traefik в этот compose — он живёт отдельным проектом.
+7. Проверь healthcheck публичного web-сервиса:
+   - Traefik может игнорировать контейнеры со статусом unhealthy/starting, из-за чего будет отдавать 404 и TRAEFIK DEFAULT CERT даже при правильных labels.
+   - Если healthcheck обращается к localhost, замени localhost на 127.0.0.1:
+       http://localhost/ -> http://127.0.0.1/
+       http://localhost:3000/ -> http://127.0.0.1:3000/
+   - Причина: внутри Alpine/nginx/busybox wget localhost может резолвиться в IPv6 [::1], а приложение/nginx часто слушает только IPv4. Тогда healthcheck падает с "Connection refused", контейнер становится unhealthy, и Traefik не создаёт рабочий router.
+   - Если healthcheck задан и в docker-compose.yml, и в Dockerfile, приведи оба к 127.0.0.1.
+   - Не удаляй healthcheck без необходимости; лучше исправь его так, чтобы он проверял внутренний порт сервиса по IPv4 loopback.
+
+Важные правила:
+- НЕ хардкодь IP/хостовые порты. Маршрутизация только по домену через Host(...).
+- Несколько доменов на сервис: Host(\`a.com\`) || Host(\`www.a.com\`).
+- Если у проекта несколько публичных сервисов (frontend + api на поддомене) — у каждого свой router и Host.
+- Сохрани остальную конфигурацию (volumes, env, depends_on) без изменений.
+- Healthcheck сохраняй по смыслу, но адаптируй URL под внутренний порт и IPv4 loopback: используй 127.0.0.1 вместо localhost, чтобы контейнер не стал unhealthy из-за IPv6 localhost.
+- Если меняешь healthcheck в compose, проверь, нет ли аналогичного HEALTHCHECK в Dockerfile. Если есть — обнови и его.
+- После изменений проверь итоговый compose через docker compose config, подставив временные значения обязательных env-переменных, если нужно.
+
+Формат ответа:
+
+## Изменённый docker-compose.yml
+\`\`\`yaml
+<полный итоговый файл>
+\`\`\`
+
+## Что изменилось
+- какие ports убраны;
+- какие Traefik labels добавлены;
+- какой внутренний порт определён и почему;
+- какой healthcheck изменён и почему;
+- был ли обновлён HEALTHCHECK в Dockerfile.
+
+## Чек-лист перед деплоем
+- A-запись домена указывает на IP сервера.
+- На сервере выполнено: docker network create web (один раз).
+- Traefik-проект уже задеплоен и слушает 80/443.
+- Traefik-контейнер подключён к external-сети web. Проверка:
+    docker network inspect web
+  В списке Containers должны быть и Traefik, и web-контейнер сайта.
+- В compose Traefik-проекта закреплено:
+    networks:
+      - web
+  и:
+    networks:
+      web:
+        external: true
+- Желательно, чтобы Traefik Docker provider был закреплён на сеть web:
+    --providers.docker.network=web
+- После деплоя проверь:
+    docker compose ps
+  Публичный web-сервис должен быть healthy. Если он unhealthy, Traefik может отдавать 404/default cert.
+- Если Traefik отдаёт HTTP 404 и TRAEFIK DEFAULT CERT:
+  1. Проверь labels контейнера:
+       docker inspect <web-container> --format '{{range \$k,\$v := .Config.Labels}}{{println \$k "=" \$v}}{{end}}'
+  2. Проверь, что есть:
+       traefik.docker.network=web
+  3. Проверь healthcheck:
+       docker inspect <web-container> --format '{{range .State.Health.Log}}{{println .Output}}{{end}}'
+  4. Проверь, что Traefik и сайт в одной сети:
+       docker network inspect web
+- ВНИМАНИЕ для серверов с включённым VPN-клиентом: выпуск Let's Encrypt по HTTP-01 может зависнуть
+  (входящий на 80 и ответ должны идти мимо VPN-туннеля). Если так — предложи переключить Traefik
+  на DNS-01 challenge у DNS-провайдера домена.
+`;
+
 const postgresExample = `# backup db
 docker compose exec -T db pg_dump -U postgres app | gzip > {{OUT}}
 
@@ -301,21 +399,38 @@ function BackupRestoreSection() {
         </div>
       </div>
 
-      <AgentPromptBlock />
+      <AgentPromptBlock
+        prompt={BACKUP_RESTORE_AGENT_SPEC}
+        description={
+          <>
+            Не хотите составлять команды вручную? Скопируйте этот промт и отправьте его LLM-агенту
+            (Claude Code, Codex и т.п.) в репозитории вашего проекта. Агент изучит проект, определит,
+            что бэкапить (БД / media / volumes), и вернёт готовые{" "}
+            <code className="rounded bg-ink px-1">backupArtifacts</code> с командами backup/restore,
+            которые останется вставить в форму проекта DankoDeploy.
+          </>
+        }
+      />
     </section>
   );
 }
 
 /**
- * Готовый промт для LLM-агента: отправьте его в другой репозиторий, агент изучит проект
- * и вернёт артефакты backupArtifacts + команды backup/restore под формат DankoDeploy.
- * Используется в разделе backup/restore и в отдельной вкладке «LLM-спека».
+ * Готовый промт для LLM-агента: отправьте его в репозиторий проекта, агент изучит код
+ * и вернёт готовый результат под формат DankoDeploy. Параметризован, чтобы один блок
+ * переиспользовался для разных промтов (backup/restore, Traefik и т.п.).
  */
-function AgentPromptBlock() {
+function AgentPromptBlock({
+  prompt,
+  description,
+}: {
+  prompt: string;
+  description: React.ReactNode;
+}) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
-    await navigator.clipboard.writeText(BACKUP_RESTORE_AGENT_SPEC);
+    await navigator.clipboard.writeText(prompt);
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
   };
@@ -330,15 +445,9 @@ function AgentPromptBlock() {
           {copied ? "Скопировано" : "Скопировать промт"}
         </button>
       </div>
-      <p className="text-sm text-slate-400">
-        Не хотите составлять команды вручную? Скопируйте этот промт и отправьте его LLM-агенту
-        (Claude Code, Codex и т.п.) в репозитории вашего проекта. Агент изучит проект, определит, что
-        бэкапить (БД / media / volumes), и вернёт готовые{" "}
-        <code className="rounded bg-ink px-1">backupArtifacts</code> с командами backup/restore,
-        которые останется вставить в форму проекта DankoDeploy.
-      </p>
+      <p className="text-sm text-slate-400">{description}</p>
       <pre className="max-h-[420px] overflow-y-auto whitespace-pre-wrap rounded-lg bg-ink p-3 text-xs leading-relaxed text-slate-300">
-        {BACKUP_RESTORE_AGENT_SPEC}
+        {prompt}
       </pre>
     </div>
   );
@@ -404,11 +513,43 @@ function ExamplesSection() {
 
 function AgentPromptSection() {
   return (
-    <section id="agent-spec" className="scroll-mt-20 space-y-3">
+    <section id="agent-spec" className="scroll-mt-20 space-y-4">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-        Спецификация для LLM-агента
+        Спецификации для LLM-агента
       </h2>
-      <AgentPromptBlock />
+      <p className="text-sm text-slate-400">
+        Готовые промты для других LLM-агентов: скопируйте нужный и отправьте агенту в репозитории
+        вашего проекта — он подготовит проект под DankoDeploy и вернёт готовый результат.
+      </p>
+
+      <h3 className="pt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Backup / Restore
+      </h3>
+      <AgentPromptBlock
+        prompt={BACKUP_RESTORE_AGENT_SPEC}
+        description={
+          <>
+            Агент изучит проект, определит, что бэкапить (БД / media / volumes), и вернёт готовые{" "}
+            <code className="rounded bg-ink px-1">backupArtifacts</code> с командами backup/restore
+            для формы проекта DankoDeploy.
+          </>
+        }
+      />
+
+      <h3 className="pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Traefik (несколько сайтов на VPS)
+      </h3>
+      <AgentPromptBlock
+        prompt={TRAEFIK_AGENT_SPEC}
+        description={
+          <>
+            Агент переделает <code className="rounded bg-ink px-1">docker-compose</code> проекта под
+            общий reverse-proxy Traefik: уберёт публикацию портов, подключит сервис к сети{" "}
+            <code className="rounded bg-ink px-1">web</code> и навесит метки с доменом и HTTPS. Так
+            несколько сайтов уживаются на одном VPS без конфликта портов 80/443.
+          </>
+        }
+      />
     </section>
   );
 }
