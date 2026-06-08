@@ -191,9 +191,9 @@ function ServerCard({
             </div>
           </Section>
 
-          {/* Контейнеры */}
+          {/* Контейнеры (сворачиваемая секция) */}
           {(snapshot.containers?.length ?? 0) > 0 && (
-            <Section title={`Контейнеры (${snapshot.containers.length})`}>
+            <Section title={`Контейнеры (${snapshot.containers.length})`} collapsible>
               <div className="space-y-1.5">
                 {snapshot.containers.map((c) => (
                   <ContainerRow key={c.name} c={c} onLogs={() => setLogsContainer(c.name)} />
@@ -217,12 +217,6 @@ function ServerCard({
           onClose={() => setLogsContainer(null)}
         />
       )}
-
-      <div className="pt-1">
-        <Link to="/projects" className="text-xs text-indigo-400 hover:underline">
-          Проекты на этом сервере →
-        </Link>
-      </div>
     </div>
   );
 }
@@ -231,13 +225,47 @@ function ServerCard({
  * Визуальная секция внутри карточки сервера: разделительная линия сверху +
  * подзаголовок. Помогает интуитивно отделить «Ресурсы / Контейнеры / Порты».
  */
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  title,
+  children,
+  collapsible = false,
+  defaultOpen = true,
+}: {
+  title: string;
+  children: ReactNode;
+  /** Сделать секцию сворачиваемой (заголовок-кнопка с ▶, как у портов/хранилища). */
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  if (!collapsible) {
+    return (
+      <div className="border-t border-edge pt-3">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          {title}
+        </div>
+        {children}
+      </div>
+    );
+  }
+
   return (
     <div className="border-t border-edge pt-3">
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-        {title}
-      </div>
-      {children}
+      <button
+        className="flex w-full items-center gap-1.5 text-left"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span
+          className="text-[10px] text-slate-500 transition-transform"
+          style={{ display: "inline-block", transform: open ? "rotate(90deg)" : "none" }}
+        >
+          ▶
+        </span>
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</span>
+      </button>
+      {open && <div className="mt-2">{children}</div>}
     </div>
   );
 }

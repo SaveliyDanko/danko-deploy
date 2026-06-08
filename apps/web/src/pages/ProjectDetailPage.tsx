@@ -740,14 +740,9 @@ function DeploymentsForProject({
 
   return (
     <section>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Деплои проекта
-        </h2>
-        <Link to="/deployments" className="btn-ghost px-3 py-1 text-xs">
-          Все деплои →
-        </Link>
-      </div>
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
+        Деплои проекта
+      </h2>
       {loading ? (
         <Spinner />
       ) : !deployments?.length ? (
@@ -821,9 +816,14 @@ function ProjectMetaSection({ project }: { project: ProjectPublic }) {
                   href={l.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded bg-edge/50 px-2 py-1 text-xs text-indigo-300 hover:underline"
+                  title={l.url}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-sm font-medium text-indigo-200 transition hover:border-indigo-400 hover:bg-indigo-500/20 hover:text-white"
                 >
-                  {l.label || l.url} ↗
+                  <span aria-hidden>🔗</span>
+                  {l.label || l.url}
+                  <span aria-hidden className="text-xs opacity-70">
+                    ↗
+                  </span>
                 </a>
               ))}
             </div>
