@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { EmptyState, Modal, Spinner } from "../components/ui.js";
+import { ConfirmModal, EmptyState, Modal, Spinner } from "../components/ui.js";
 import { api } from "../lib/api.js";
 import { openDeployLogDrawer } from "../lib/deployLogDrawer.js";
 import { formatDate } from "../lib/format.js";
@@ -20,6 +20,7 @@ export function ServerDetailPage() {
   const navigate = useNavigate();
   const [showTest, setShowTest] = useState(false);
   const [showHarden, setShowHarden] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const server = useQuery({
     queryKey: ["server", id],
@@ -142,9 +143,7 @@ export function ServerDetailPage() {
             <button
               className="btn-danger"
               disabled={removeServer.isPending}
-              onClick={() => {
-                if (confirm(`Удалить сервер «${s.name}»?`)) removeServer.mutate();
-              }}
+              onClick={() => setConfirmDelete(true)}
             >
               {removeServer.isPending ? <Spinner /> : "Удалить сервер"}
             </button>
@@ -196,6 +195,26 @@ export function ServerDetailPage() {
             hardenSsh.mutate();
           }}
         />
+      )}
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="Удалить сервер?"
+          confirmLabel="Удалить сервер"
+          pending={removeServer.isPending}
+          error={removeServer.isError ? removeServer.error.message : null}
+          onConfirm={() => removeServer.mutate()}
+          onClose={() => setConfirmDelete(false)}
+        >
+          <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-rose-100">
+            Сервер <span className="font-semibold">{s.name}</span> ({s.host}) и его деплои будут
+            удалены из панели.
+          </div>
+          <p className="mt-2 text-sm text-slate-400">
+            Сам VPS, его файлы и контейнеры не затрагиваются — удаляется только запись в DankoDeploy.
+            Привязанные SSH-ключи остаются в хранилище.
+          </p>
+        </ConfirmModal>
       )}
     </div>
   );

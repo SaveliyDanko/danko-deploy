@@ -70,6 +70,55 @@ export function Modal({
   );
 }
 
+/**
+ * Модалка подтверждения опасного действия (замена нативного confirm()).
+ * Тело — произвольное описание; кнопка подтверждения по умолчанию красная (danger).
+ * Показывает ошибку и блокирует кнопки на время pending. onConfirm НЕ закрывает
+ * модалку сам — закрытие делает вызывающий после успешной мутации.
+ */
+export function ConfirmModal({
+  title,
+  children,
+  confirmLabel,
+  tone = "danger",
+  pending = false,
+  error,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  children: ReactNode;
+  confirmLabel: string;
+  tone?: "danger" | "primary";
+  pending?: boolean;
+  error?: string | null;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal title={title} onClose={onClose}>
+      <div className="space-y-4">
+        <div className="text-sm text-slate-300">{children}</div>
+        {error && (
+          <div className="rounded-lg bg-rose-500/10 p-2 text-xs text-rose-300">{error}</div>
+        )}
+        <div className="flex justify-end gap-2">
+          <button className="btn-ghost" disabled={pending} onClick={onClose}>
+            Отмена
+          </button>
+          <button
+            className={tone === "danger" ? "btn-danger" : "btn-primary"}
+            disabled={pending}
+            onClick={onConfirm}
+          >
+            {pending ? <Spinner /> : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export function Spinner() {
   return (
     <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />

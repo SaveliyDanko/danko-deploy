@@ -6,7 +6,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { EmptyState, Modal, Spinner } from "../components/ui.js";
+import { ConfirmModal, EmptyState, Modal, Spinner } from "../components/ui.js";
 import { api } from "../lib/api.js";
 import { formatDate } from "../lib/format.js";
 
@@ -15,10 +15,14 @@ export function GitKeysPage() {
   const keys = useQuery({ queryKey: ["git-keys"], queryFn: api.listGitKeys });
   const [modal, setModal] = useState<"generate" | "import" | null>(null);
   const [showGuide, setShowGuide] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<GitKeyPublic | null>(null);
 
   const del = useMutation({
     mutationFn: api.deleteGitKey,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["git-keys"] }),
+    onSuccess: () => {
+      setConfirmDelete(null);
+      void qc.invalidateQueries({ queryKey: ["git-keys"] });
+    },
   });
 
   const refresh = () => {
@@ -51,20 +55,32 @@ export function GitKeysPage() {
           <GitKeyCard
             key={k.id}
             keyItem={k}
-            onDelete={() => {
-              if (
-                confirm(
-                  `Удалить git-ключ «${k.name}»? Проекты, раскатывающиеся с ним, потеряют доступ к репозиторию.`,
-                )
-              )
-                del.mutate(k.id);
-            }}
+            onDelete={() => setConfirmDelete(k)}
           />
         ))}
       </div>
 
       {modal === "generate" && <GenerateModal onClose={() => setModal(null)} onSaved={refresh} />}
       {modal === "import" && <ImportModal onClose={() => setModal(null)} onSaved={refresh} />}
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="Удалить Git-ключ?"
+          confirmLabel="Удалить ключ"
+          pending={del.isPending}
+          error={del.isError ? del.error.message : null}
+          onConfirm={() => del.mutate(confirmDelete.id)}
+          onClose={() => setConfirmDelete(null)}
+        >
+          <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-rose-100">
+            Git-ключ <span className="font-semibold">{confirmDelete.name}</span> будет удалён из
+            хранилища панели.
+          </div>
+          <p className="mt-2 text-sm text-slate-400">
+            Проекты, раскатывающиеся с ним из приватных репозиториев, потеряют доступ к репозиторию.
+          </p>
+        </ConfirmModal>
+      )}
     </div>
   );
 }
