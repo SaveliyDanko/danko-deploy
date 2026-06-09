@@ -60,20 +60,44 @@ else
   echo "sing-box уже установлен: $(sing-box version 2>/dev/null | head -n1)"
 fi
 
-# --- УРОВЕНЬ 1: kernel-страховка SSH (ДО старта туннеля) ---
-# Исходящие пакеты sshd (sport=SSH) маркируем и гоним через отдельную таблицу
-# на физический шлюз — мимо TUN. Идемпотентно.
+# --- УРОВЕНЬ 1: kernel-страховка доступа к серверу (ДО старта туннеля) ---
+# Проблема: sing-box (TUN) заворачивает ВЕСЬ исходящий трафик в VPN, включая ОТВЕТЫ
+# на входящие подключения (SSH, веб-сайты за Traefik/docker). Ответ уходит с IP
+# VPN-провайдера → клиент его не принимает → доступ к серверу по его IP теряется.
+#
+# Решение (policy routing): заводим таблицу 100 с маршрутом на физический шлюз и
+# направляем в неё трафик, который ДОЛЖЕН идти мимо туннеля:
+#   1) fwmark 0x1 + MARK по --sport SSH — прямой SSH-доступ панели;
+#   2) from <docker-subnet> — ОТВЕТЫ контейнеров (Traefik и сайтов). Ключевой момент:
+#      ответ контейнера в момент маршрутизации имеет src из docker-сети (172.x), а
+#      MASQUERADE на внешний IP происходит ПОЗЖЕ — поэтому ловим по docker-src;
+#   3) from <host-src> — ответы процессов самого хоста.
+# Правила from стоят с приоритетом ВЫШЕ (98), чем правила sing-box (9000+).
 GW=$(ip route show default | awk '/default/{print $3; exit}')
 DEV=$(ip route show default | awk '/default/{print $5; exit}')
+HOST_SRC=$(ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
 if [ -n "$GW" ] && [ -n "$DEV" ]; then
+  $SUDO ip route replace default via "$GW" dev "$DEV" table 100
+  # SSH по метке (пояс безопасности — работает даже без определения подсетей).
   $SUDO iptables -t mangle -C OUTPUT -p tcp --sport "$DD_SSH_PORT" -j MARK --set-mark 0x1 2>/dev/null \
     || $SUDO iptables -t mangle -A OUTPUT -p tcp --sport "$DD_SSH_PORT" -j MARK --set-mark 0x1
   $SUDO ip rule del fwmark 0x1 table 100 2>/dev/null || true
   $SUDO ip rule add fwmark 0x1 table 100 priority 100
-  $SUDO ip route replace default via "$GW" dev "$DEV" table 100
-  echo "SSH-страховка установлена (fwmark 0x1 → table 100 via $GW dev $DEV)."
+  # Ответы контейнеров: правило from для каждой docker-bridge подсети (docker0 + br-*).
+  for CIDR in $(ip -4 -o addr show 2>/dev/null | awk '/ (docker0|br-)/{print $4}'); do
+    NET=$(ip -4 route list "$CIDR" 2>/dev/null | awk 'NR==1{print $1}')
+    [ -z "$NET" ] && NET="$CIDR"
+    $SUDO ip rule del from "$NET" table 100 priority 98 2>/dev/null || true
+    $SUDO ip rule add from "$NET" table 100 priority 98
+  done
+  # Ответы процессов хоста (по его реальному src-адресу).
+  if [ -n "$HOST_SRC" ]; then
+    $SUDO ip rule del from "$HOST_SRC" table 100 priority 99 2>/dev/null || true
+    $SUDO ip rule add from "$HOST_SRC" table 100 priority 99
+  fi
+  echo "Страховка доступа установлена (table 100 via $GW dev $DEV; SSH + docker-сети + host-src мимо TUN)."
 else
-  echo "ВНИМАНИЕ: не удалось определить шлюз — kernel-страховка SSH пропущена."
+  echo "ВНИМАНИЕ: не удалось определить шлюз — kernel-страховка пропущена."
 fi
 
 # Пишем конфиг (из base64, без вывода содержимого — там секреты).
@@ -109,9 +133,14 @@ if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
 $SUDO systemctl disable --now sing-box 2>/dev/null || true
 $SUDO rm -f ` + CONFIG_PATH + String.raw` 2>/dev/null || true
 
-# Снять kernel-страховку SSH.
+# Снять kernel-страховку: SSH-метка, все правила from (docker-сети + host-src), таблица 100.
 $SUDO iptables -t mangle -D OUTPUT -p tcp --sport "$DD_SSH_PORT" -j MARK --set-mark 0x1 2>/dev/null || true
 $SUDO ip rule del fwmark 0x1 table 100 2>/dev/null || true
+# Удаляем все правила, ссылающиеся на таблицу 100 (правила from с priority 98/99),
+# повторяя del, пока такие правила остаются (по одному за проход).
+while ip rule show 2>/dev/null | grep -q "lookup 100"; do
+  $SUDO ip rule del table 100 2>/dev/null || break
+done
 $SUDO ip route flush table 100 2>/dev/null || true
 echo "VPN-клиент выключен, маршрутизация восстановлена."
 `;
@@ -136,7 +165,7 @@ export class SingBoxInstaller {
 
   async run(target: SshTarget, opts: SingBoxRunOptions, handlers: SingBoxInstallHandlers): Promise<DeployStatus> {
     handlers.onLog("▶ Включение VPN-клиента (sing-box)", "info");
-    handlers.onLog("Весь исходящий трафик сервера пойдёт через VPN; SSH-доступ панели исключён.", "info");
+    handlers.onLog("Весь исходящий трафик сервера пойдёт через VPN; ответы на входящие подключения (SSH, сайты за Traefik/docker) исключены — доступ к серверу по его IP сохраняется.", "info");
 
     // config и SSH-порт передаём через env, чтобы не светить секреты в команде.
     const env: Record<string, string> = {
