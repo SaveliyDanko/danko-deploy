@@ -775,6 +775,19 @@ function DeploymentsForProject({
 }
 
 /**
+ * Доменное имя из URL ссылки: хост без www (например "litiysew.ru").
+ * Толерантно к ссылкам без протокола; при неудаче парсинга возвращает исходную строку.
+ */
+function linkHost(url: string): string {
+  try {
+    const u = new URL(/^[a-z]+:\/\//i.test(url) ? url : `https://${url}`);
+    return u.host.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+/**
  * Карточки метаинформации проекта: репозиторий, ссылки, порты, контейнеры, env,
  * чек-лист, заметки. Чисто справочные — помогают быстро сориентироваться перед раскаткой.
  */
@@ -810,22 +823,32 @@ function ProjectMetaSection({ project }: { project: ProjectPublic }) {
           )}
           {meta?.links?.length ? (
             <div className="flex flex-wrap gap-2">
-              {meta.links.map((l, i) => (
-                <a
-                  key={i}
-                  href={l.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={l.url}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-sm font-medium text-indigo-200 transition hover:border-indigo-400 hover:bg-indigo-500/20 hover:text-white"
-                >
-                  <span aria-hidden>🔗</span>
-                  {l.label || l.url}
-                  <span aria-hidden className="text-xs opacity-70">
-                    ↗
-                  </span>
-                </a>
-              ))}
+              {meta.links.map((l, i) => {
+                const host = linkHost(l.url);
+                // С меткой показываем и метку, и само доменное имя; без метки — только домен/URL.
+                const showHost = !!l.label && !!host && host !== l.label;
+                return (
+                  <a
+                    key={i}
+                    href={l.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={l.url}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-sm font-medium text-indigo-200 transition hover:border-indigo-400 hover:bg-indigo-500/20 hover:text-white"
+                  >
+                    <span aria-hidden>🔗</span>
+                    {l.label || host || l.url}
+                    {showHost && (
+                      <span className="font-mono text-xs font-normal text-indigo-300/70">
+                        {host}
+                      </span>
+                    )}
+                    <span aria-hidden className="text-xs opacity-70">
+                      ↗
+                    </span>
+                  </a>
+                );
+              })}
             </div>
           ) : null}
         </div>
