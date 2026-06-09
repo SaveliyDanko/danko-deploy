@@ -7,7 +7,8 @@
 ## Проект в одном абзаце
 
 **DankoDeploy** — TypeScript-монорепо (pnpm workspaces): локальная веб-панель для деплоя,
-мониторинга, бэкапов и управления сервисами на VPS **по SSH, без агентов на серверах**.
+мониторинга, бэкапов и управления сервисами на VPS **по SSH, без агентов на серверах**,
+а также на локальном хосте (через `child_process`, из Docker — `nsenter`).
 Backend на Fastify + node-ssh + SQLite/Drizzle + WebSocket; frontend на React + Vite + Tailwind +
 TanStack Query. Общие типы — Zod в `packages/shared`. Запускается локально (`127.0.0.1`).
 
@@ -19,7 +20,7 @@ TanStack Query. Общие типы — Zod в `packages/shared`. Запуска
 | `apps/web` | `@dankodeploy/web` | React + Vite дашборд (+ xterm.js терминал). Вход: `src/main.tsx` |
 | `packages/shared` | `@dankodeploy/shared` | **Zod-схемы и типы — источник истины** (вкл. WS-протокол в `deploy.ts`) |
 | `packages/db` | `@dankodeploy/db` | Drizzle schema (`src/schema.ts`); схему применять `pnpm db:push` |
-| `packages/core` | `@dankodeploy/core` | Доменная логика поверх SSH: SshExecutor (+`openShell`), KeyManager, DeployRunner/UndeployRunner/ProvisionRunner, MetricsCollector, BackupRunner/RestoreRunner, AgentInstaller, Docker/Node/SshHardening-installers, crypto (шифрование + хэш пароля + ключ из пароля) |
+| `packages/core` | `@dankodeploy/core` | Доменная логика: `SshExecutor` (SSH) + `LocalExecutor` (локальные команды через `child_process`, из Docker — `nsenter`), `KeyManager`, `DeployRunner`/`UndeployRunner`/`ProvisionRunner`, `MetricsCollector`, `BackupRunner`/`RestoreRunner`, `AgentInstaller`, `DockerInstaller`/`NodeInstaller`/`SshHardeningInstaller`, crypto |
 
 **Полная карта сервисов, эндпоинтов, схемы БД и WS-протокола — в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 (§5–§8). Читай её перед нетривиальными изменениями.** Ниже — только то, что нужно держать в голове постоянно.
@@ -125,10 +126,18 @@ e2e через curl; при желании покрыть их юнитами п
 - **`DATABASE_URL` относительный резолвится от cwd**; сервер и drizzle-kit имеют разный cwd — в dev
   путь абсолютный, а `drizzle.config.ts` сам подхватывает корневой `.env`.
 - `better-sqlite3`/`ssh2` нативные → `allowBuilds: true` в `pnpm-workspace.yaml`; при смене Node — `pnpm rebuild`.
-- `KeyManager` требует системный `ssh-keygen` в PATH; AI-агенты требуют `tmux`+`npm` на целевом сервере
-  (`AgentInstaller` ставит/проверяет CLI и удаляет его через `npm uninstall -g`).
+- `KeyManager` требует системный `ssh-keygen` в PATH.
+- **AI-агенты требуют `tmux`+`npm` на целевом сервере.** `AgentInstaller` ставит/проверяет CLI и удаляет через `npm uninstall -g`.
+  **Для локального сервера:** если tmux не найден — ошибка «Установите вручную: sudo apt-get install -y tmux»
+  (без попытки sudo через child_process, которое без TTY зависает на запросе пароля).
 - **WS-протокол** — единый discriminatedUnion в `packages/shared/src/deploy.ts`: новый тип сообщения
   добавляй туда, иначе `safeParse` его отбросит. Байты pty (`terminal:*`/`server-terminal:*`) — base64.
+- **Локальный сервер (`connectionType: "local"`):**
+  - Команды выполняются через `LocalExecutor` (child_process: `execSync`/`spawn`), из Docker — `nsenter -t 1 -m -u -i -n -p`.
+  - Терминал: PTY через системный `script -qfc "exec $SHELL" /dev/null` (не `spawn` — он неинтерактивен).
+  - Таймаут команд: 60 секунд (защита от зависаний при недоступной сети).
+  - Кнопки «Установить Docker/Node/SSH hardening» скрыты на UI (на хосте уже есть).
+  - В production docker-compose: `pid: "host"` + volume `/var/run/docker.sock`.
 
 ## Язык
 
