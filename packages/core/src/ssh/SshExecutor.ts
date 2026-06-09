@@ -1,7 +1,9 @@
 import { NodeSSH } from "node-ssh";
 import type { ClientChannel } from "ssh2";
 
-import type { ServerCredentials } from "@dankodeploy/shared";
+import type { ConnectionType, ServerCredentials } from "@dankodeploy/shared";
+
+import type { LocalExecutor } from "../local/LocalExecutor.js";
 
 /** Параметры подключения к одному серверу (секреты уже расшифрованы). */
 export interface SshTarget {
@@ -10,6 +12,8 @@ export interface SshTarget {
   port: number;
   username: string;
   credentials: ServerCredentials;
+  /** Тип подключения: ssh (по сети) или local (тот же хост). По умолчанию ssh. */
+  connectionType?: ConnectionType;
 }
 
 export interface ExecResult {
@@ -88,15 +92,29 @@ export function classifySshError(err: unknown): SshErrorInfo {
   return { kind: "unknown", message: raw, raw };
 }
 
+/** Возвращает true, если сервер локальный (без SSH). */
+export function isLocalTarget(target: SshTarget): boolean {
+  return target.connectionType === "local";
+}
+
 /**
  * Управляет SSH-соединениями: на каждый сервер держит одно живое соединение
  * и переиспользует его между командами. Потокобезопасен на уровне "одно
  * подключение на target.id" — параллельные вызовы для одного сервера ждут
  * установки общего соединения.
+ *
+ * Для локальных серверов (connectionType = "local") делегирует вызовы
+ * LocalExecutor (child_process вместо SSH), прозрачно для вызывающих.
  */
 export class SshExecutor {
   private readonly connections = new Map<string, NodeSSH>();
   private readonly connecting = new Map<string, Promise<NodeSSH>>();
+  private local: LocalExecutor | undefined;
+
+  /** Устанавливает LocalExecutor для локальных серверов. Вызывается при сборке контекста. */
+  setLocal(executor: LocalExecutor): void {
+    this.local = executor;
+  }
 
   /** Возвращает (создавая при необходимости) живое соединение к серверу. */
   private async getConnection(target: SshTarget): Promise<NodeSSH> {
@@ -134,11 +152,6 @@ export class SshExecutor {
       readyTimeout: 15_000,
       keepaliveInterval: 10_000,
     });
-    // Критично: ssh2-клиент пуловый и живёт долго. Асинхронные ошибки на нём
-    // (keepalive-timeout простаивающего соединения, обрыв сети) эмитятся как
-    // событие 'error' ВНЕ контекста промиса — необработанное оно роняет весь
-    // процесс сервера. Гасим: логируем и выкидываем протухшее соединение из
-    // пула, чтобы getConnection пересоздал его при следующем обращении.
     ssh.connection?.on("error", (err) => {
       console.error(`[ssh] соединение к ${target.id} (${target.host}) упало:`, classifySshError(err).message);
       this.disconnect(target.id);
@@ -146,20 +159,14 @@ export class SshExecutor {
     return ssh;
   }
 
-  /**
-   * Признак «соединение живо по TCP, но новый канал на нём открыть нельзя».
-   * Бывает на протухшем соединении из пула (сервер ребутнули / порвалась сеть, а
-   * `isConnected()` ещё врёт `true`) или при упоре в `MaxSessions`. sshd отвечает
-   * `Channel open failure: open failed`. По этому признаку соединение пересоздаём.
-   */
+  /** Признак «соединение живо по TCP, но новый канал на нём открыть нельзя». */
   private isChannelOpenError(err: unknown): boolean {
     return classifySshError(err).kind === "channel";
   }
 
   /**
    * Выполняет операцию на пуловом соединении. Если падает на открытии канала
-   * (см. isChannelOpenError) — сбрасывает соединение из пула и пробует ОДИН раз
-   * переподключиться. Так протухшие соединения самоисцеляются без рестарта панели.
+   * — сбрасывает соединение из пула и пробует ОДИН раз переподключиться.
    */
   private async withConnection<T>(
     target: SshTarget,
@@ -170,31 +177,32 @@ export class SshExecutor {
       return await op(ssh);
     } catch (err) {
       if (!this.isChannelOpenError(err)) throw err;
-      // Соединение непригодно — выбрасываем из пула и переподключаемся заново.
       this.disconnect(target.id);
       const fresh = await this.getConnection(target);
       return op(fresh);
     }
   }
 
-  /** Выполняет команду и возвращает полный результат. */
+  // ─── Публичные методы ────────────────────────────────────────────
+
+  /** Выполняет команду и возвращает полный результат (SSH или локально). */
   async exec(target: SshTarget, command: string, cwd?: string): Promise<ExecResult> {
+    if (isLocalTarget(target)) return this.local!.exec(target, command, cwd);
     return this.withConnection(target, async (ssh) => {
       const res = await ssh.execCommand(command, cwd ? { cwd } : {});
       return { code: res.code, stdout: res.stdout, stderr: res.stderr };
     });
   }
 
-  /**
-   * Выполняет команду, стримя stdout/stderr построчно в колбэки.
-   * Возвращает код выхода. Используется для live-логов деплоя.
-   */
+  /** Выполняет команду, стримя stdout/stderr построчно (SSH или локально). */
   async execStream(
     target: SshTarget,
     command: string,
     handlers: ExecStreamHandlers,
     cwd?: string,
   ): Promise<number> {
+    if (isLocalTarget(target)) return this.local!.execStream(target, command, handlers, cwd);
+
     const flush = (buf: string, emit?: (line: string) => void): string => {
       const parts = buf.split("\n");
       const rest = parts.pop() ?? "";
@@ -217,7 +225,6 @@ export class SshExecutor {
           stderrBuf = flush(stderrBuf, handlers.onStderr);
         },
       });
-      // Долить остатки без перевода строки
       if (stdoutBuf) handlers.onStdout?.(stdoutBuf);
       if (stderrBuf) handlers.onStderr?.(stderrBuf);
 
@@ -225,23 +232,23 @@ export class SshExecutor {
     });
   }
 
-  /** Загружает локальный файл на сервер (для systemd-артефактов и т.п.). */
+  /** Загружает локальный файл на сервер (SSH или локально). */
   async upload(target: SshTarget, localPath: string, remotePath: string): Promise<void> {
+    if (isLocalTarget(target)) return this.local!.upload(target, localPath, remotePath);
     const ssh = await this.getConnection(target);
     await ssh.putFile(localPath, remotePath);
   }
 
-  /** Скачивает файл с сервера на машину панели (например, готовый бэкап). */
+  /** Скачивает файл с сервера на машину панели (SSH или локально). */
   async download(target: SshTarget, remotePath: string, localPath: string): Promise<void> {
+    if (isLocalTarget(target)) return this.local!.download(target, remotePath, localPath);
     const ssh = await this.getConnection(target);
     await ssh.getFile(localPath, remotePath);
   }
 
-  /**
-   * Записывает строку в файл на сервере через SFTP (без временного файла на машине панели).
-   * Используется для .env-файлов проектов; права выставляются отдельной командой вызывающим.
-   */
+  /** Записывает строку в файл на сервере (SSH/SFTP или локально). */
   async writeFile(target: SshTarget, remotePath: string, content: string): Promise<void> {
+    if (isLocalTarget(target)) return this.local!.writeFile(target, remotePath, content);
     return this.withConnection(target, async (ssh) => {
       const sftp = await ssh.requestSFTP();
       await new Promise<void>((resolve, reject) => {
@@ -253,18 +260,12 @@ export class SshExecutor {
     });
   }
 
-  /**
-   * Открывает интерактивный shell с pty (для веб-терминала). Возвращает ssh2-канал:
-   * .on("data") — вывод, .write() — ввод, .setWindow() — ресайз, .end() — закрытие.
-   * ssh2 мультиплексирует каналы на одном соединении, поэтому shell не мешает execCommand.
-   */
+  /** Открывает интерактивный shell с pty (SSH или локально). */
   async openShell(
     target: SshTarget,
     opts: { rows: number; cols: number; term?: string },
   ): Promise<ClientChannel> {
-    // withConnection пересоздаёт протухшее соединение, если sshd отвечает
-    // "Channel open failure: open failed" на requestShell (главная причина
-    // ошибки веб-терминала — мёртвое соединение в пуле после ребута VPS/сети).
+    if (isLocalTarget(target)) return this.local!.openShell(target, opts);
     return this.withConnection(target, (ssh) =>
       ssh.requestShell({
         term: opts.term ?? "xterm-256color",
@@ -274,13 +275,12 @@ export class SshExecutor {
     );
   }
 
-  /**
-   * Проверяет соединение, выполняя `uname -a`. Открывает временное соединение,
-   * чтобы не оставлять висящих коннектов при неуспехе настройки.
-   */
+  /** Проверяет соединение (SSH или локально). */
   async testConnection(
     target: SshTarget,
   ): Promise<{ ok: boolean; uname?: string; error?: string; latencyMs: number }> {
+    if (isLocalTarget(target)) return this.local!.testConnection(target);
+
     const started = Date.now();
     const ssh = new NodeSSH();
     try {
@@ -312,15 +312,17 @@ export class SshExecutor {
     }
   }
 
-  /** Закрывает соединение к конкретному серверу (например, после удаления/правки доступа). */
+  /** Закрывает соединение к конкретному серверу (SSH или локально). */
   disconnect(serverId: string): void {
     this.connections.get(serverId)?.dispose();
     this.connections.delete(serverId);
+    this.local?.disconnect(serverId);
   }
 
   /** Закрывает все соединения (graceful shutdown). */
   disposeAll(): void {
     for (const ssh of this.connections.values()) ssh.dispose();
     this.connections.clear();
+    this.local?.disposeAll();
   }
 }

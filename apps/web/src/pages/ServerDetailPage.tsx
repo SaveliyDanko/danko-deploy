@@ -8,7 +8,8 @@ import { openDeployLogDrawer } from "../lib/deployLogDrawer.js";
 import { formatDate } from "../lib/format.js";
 import { TestResult } from "./ServersPage.js";
 
-function authLabel(method: "key" | "password" | "stored-key"): string {
+function authLabel(method: "key" | "password" | "stored-key" | null): string {
+  if (method === null) return "—";
   if (method === "stored-key") return "ключ из хранилища";
   if (method === "key") return "SSH-ключ";
   return "пароль";
@@ -73,6 +74,7 @@ export function ServerDetailPage() {
   if (server.isError || !server.data) return <EmptyState text="Сервер не найден." />;
 
   const s = server.data;
+  const isLocal = s.connectionType === "local";
 
   return (
     <div className="space-y-5">
@@ -81,7 +83,14 @@ export function ServerDetailPage() {
           <Link to="/servers" className="btn-ghost mb-1.5 inline-flex items-center gap-1 px-2.5 py-1 text-xs">
             <span aria-hidden>←</span> Все серверы
           </Link>
-          <h1 className="text-xl font-semibold">{s.name}</h1>
+          <h1 className="text-xl font-semibold">
+            {s.name}
+            {isLocal && (
+              <span className="ml-2 text-xs rounded-full bg-emerald-500/15 text-emerald-400 px-2 py-0.5">
+                Локальный
+              </span>
+            )}
+          </h1>
         </div>
       </div>
 
@@ -105,41 +114,46 @@ export function ServerDetailPage() {
             <Link className="btn-primary" to={`/servers/${s.id}/terminal`}>
               Терминал
             </Link>
-            <button
-              className="btn-ghost"
-              disabled={test.isPending}
-              onClick={() => {
-                setShowTest(true);
-                test.reset();
-                test.mutate();
-              }}
-            >
-              {test.isPending ? <Spinner /> : "Проверить соединение"}
-            </button>
-            <button
-              className="btn-primary"
-              disabled={installDocker.isPending}
-              title="Установить Docker Engine и Docker Compose plugin на сервер"
-              onClick={() => installDocker.mutate()}
-            >
-              {installDocker.isPending ? <Spinner /> : "Установить Docker"}
-            </button>
-            <button
-              className="btn-primary"
-              disabled={installNode.isPending}
-              title="Установить Node.js и npm на сервер"
-              onClick={() => installNode.mutate()}
-            >
-              {installNode.isPending ? <Spinner /> : "Установить Node/npm"}
-            </button>
-            <button
-              className="btn-ghost"
-              disabled={hardenSsh.isPending}
-              title="Применить рекомендуемые настройки SSH: лимиты подключений, keepalive, fail2ban"
-              onClick={() => setShowHarden(true)}
-            >
-              {hardenSsh.isPending ? <Spinner /> : "Настроить SSH"}
-            </button>
+            {/* Кнопки установки/настройки — только для SSH-серверов */}
+            {!isLocal && (
+              <>
+                <button
+                  className="btn-ghost"
+                  disabled={test.isPending}
+                  onClick={() => {
+                    setShowTest(true);
+                    test.reset();
+                    test.mutate();
+                  }}
+                >
+                  {test.isPending ? <Spinner /> : "Проверить соединение"}
+                </button>
+                <button
+                  className="btn-primary"
+                  disabled={installDocker.isPending}
+                  title="Установить Docker Engine и Docker Compose plugin на сервер"
+                  onClick={() => installDocker.mutate()}
+                >
+                  {installDocker.isPending ? <Spinner /> : "Установить Docker"}
+                </button>
+                <button
+                  className="btn-primary"
+                  disabled={installNode.isPending}
+                  title="Установить Node.js и npm на сервер"
+                  onClick={() => installNode.mutate()}
+                >
+                  {installNode.isPending ? <Spinner /> : "Установить Node/npm"}
+                </button>
+                <button
+                  className="btn-ghost"
+                  disabled={hardenSsh.isPending}
+                  title="Применить рекомендуемые настройки SSH: лимиты подключений, keepalive, fail2ban"
+                  onClick={() => setShowHarden(true)}
+                >
+                  {hardenSsh.isPending ? <Spinner /> : "Настроить SSH"}
+                </button>
+              </>
+            )}
             <button
               className="btn-danger"
               disabled={removeServer.isPending}
@@ -151,22 +165,22 @@ export function ServerDetailPage() {
 
           {installDocker.isError && (
             <div className="rounded-lg bg-rose-500/10 p-2 text-xs text-rose-300">
-              {(installDocker.error).message}
+              {installDocker.error.message}
             </div>
           )}
           {installNode.isError && (
             <div className="rounded-lg bg-rose-500/10 p-2 text-xs text-rose-300">
-              {(installNode.error).message}
+              {installNode.error.message}
             </div>
           )}
           {hardenSsh.isError && (
             <div className="rounded-lg bg-rose-500/10 p-2 text-xs text-rose-300">
-              {(hardenSsh.error).message}
+              {hardenSsh.error.message}
             </div>
           )}
           {removeServer.isError && (
             <div className="rounded-lg bg-rose-500/10 p-2 text-xs text-rose-300">
-              {(removeServer.error).message}
+              {removeServer.error.message}
             </div>
           )}
         </div>
@@ -176,7 +190,7 @@ export function ServerDetailPage() {
         <TestResult
           pending={test.isPending}
           result={test.data}
-          httpError={test.isError ? (test.error).message : undefined}
+          httpError={test.isError ? test.error.message : undefined}
           onClose={() => {
             setShowTest(false);
             test.reset();
@@ -220,11 +234,6 @@ export function ServerDetailPage() {
   );
 }
 
-/**
- * Модалка подтверждения настройки SSH (hardening). Показывает, что именно будет
- * применено, и зависит от способа подключения: пароль отключаем только при входе
- * по ключу. Требует явного согласия (чекбокс).
- */
 function HardenSshModal({
   serverName,
   byKey,

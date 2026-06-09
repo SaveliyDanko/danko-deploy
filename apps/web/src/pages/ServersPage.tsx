@@ -9,6 +9,7 @@ import { formatDate } from "../lib/format.js";
 
 const emptyForm: CreateServerInput = {
   name: "",
+  connectionType: "ssh" as const,
   host: "",
   port: 22,
   username: "",
@@ -30,7 +31,7 @@ export function ServersPage() {
       </div>
 
       {servers.isLoading && <Spinner />}
-      {servers.data?.length === 0 && <EmptyState text="Пока нет серверов. Добавьте первый VPS." />}
+      {servers.data?.length === 0 && <EmptyState text="Пока нет серверов. Добавьте VPS или локальный сервер." />}
 
       <div className="grid gap-3">
         {servers.data?.map((s) => (
@@ -40,14 +41,20 @@ export function ServersPage() {
             className="card flex items-center justify-between hover:border-indigo-500/40"
           >
             <div>
-              <div className="font-medium">{s.name}</div>
+              <div className="font-medium flex items-center gap-2">
+                {s.name}
+                {s.connectionType === "local" && (
+                  <span className="text-xs rounded-full bg-emerald-500/15 text-emerald-400 px-2 py-0.5">
+                    Локальный
+                  </span>
+                )}
+              </div>
               <div className="text-sm text-slate-400">
-                {s.username}@{s.host}
+                {s.connectionType === "local" ? "Локальный хост" : `${s.username}@${s.host}`}
               </div>
               <div className="text-xs text-slate-500">добавлен {formatDate(s.createdAt)}</div>
             </div>
             <div className="flex items-center gap-2">
-              {/* Отдельное действие — открывает терминал, не должно триггерить переход к карточке. */}
               <Link
                 className="btn-ghost"
                 to={`/servers/${s.id}/terminal`}
@@ -89,7 +96,7 @@ export function TestResult({
       {pending ? (
         <div className="flex items-center gap-3 text-slate-300">
           <Spinner />
-          <span>Подключаемся к серверу по SSH…</span>
+          <span>Подключаемся к серверу…</span>
         </div>
       ) : httpError ? (
         <div className="space-y-2">
@@ -101,7 +108,7 @@ export function TestResult({
       ) : result?.ok ? (
         <div className="space-y-2">
           <p className="text-emerald-400">✔ Соединение успешно ({result.latencyMs} мс)</p>
-          <p className="text-sm text-slate-400">Сервер ответил на SSH-подключение. Вывод `uname -a`:</p>
+          <p className="text-sm text-slate-400">Вывод `uname -a`:</p>
           <pre className="overflow-x-auto rounded-lg bg-ink p-3 text-xs text-slate-300">
             {result.uname}
           </pre>
@@ -129,6 +136,7 @@ function ServerFormModal({
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
 
   const keys = useQuery({ queryKey: ["keys"], queryFn: api.listKeys });
+  const isLocal = form.connectionType === "local";
 
   const testRaw = useMutation({
     mutationFn: api.testServerRaw,
@@ -136,8 +144,11 @@ function ServerFormModal({
   });
   const create = useMutation({ mutationFn: api.createServer, onSuccess: onSaved });
 
-  const setCred = (patch: Partial<CreateServerInput["credentials"]>) =>
-    setForm((f) => ({ ...f, credentials: { ...f.credentials, ...patch } }));
+  const setCred = (patch: Partial<NonNullable<CreateServerInput["credentials"]>>) =>
+    setForm((f) => ({
+      ...f,
+      credentials: f.credentials ? { ...f.credentials, ...patch } : f.credentials,
+    }));
 
   return (
     <Modal title="Новый сервер" onClose={onClose}>
@@ -151,114 +162,166 @@ function ServerFormModal({
             placeholder="Прод VPS"
           />
         </div>
-        <div className="grid grid-cols-3 gap-2">
-          <div className="col-span-2">
-            <label className="label">Host / IP</label>
-            <input
-              className="input"
-              value={form.host}
-              onChange={(e) => setForm({ ...form, host: e.target.value })}
-              onBlur={(e) => setForm({ ...form, host: e.target.value.trim() })}
-              placeholder="203.0.113.10"
-            />
-          </div>
-          <div>
-            <label className="label">Порт</label>
-            <input
-              className="input"
-              type="number"
-              value={form.port}
-              onChange={(e) => setForm({ ...form, port: Number(e.target.value) })}
-            />
-          </div>
-        </div>
+
+        {/* Выбор типа подключения */}
         <div>
-          <label className="label">Пользователь SSH</label>
-          <input
-            className="input"
-            value={form.username}
-            onChange={(e) => setForm({ ...form, username: e.target.value })}
-            placeholder="deploy"
-          />
-        </div>
-        <div>
-          <label className="label">Метод аутентификации</label>
-          <select
-            className="input"
-            value={form.credentials.authMethod}
-            onChange={(e) => {
-              const m = e.target.value;
-              setForm({
-                ...form,
-                keyId: m === "stored-key" ? (keys.data?.[0]?.id ?? "") : undefined,
-                credentials:
-                  m === "key"
-                    ? { authMethod: "key", privateKey: "" }
-                    : m === "password"
-                      ? { authMethod: "password", password: "" }
-                      : { authMethod: "stored-key" },
-              });
-            }}
-          >
-            <option value="stored-key">Ключ из хранилища</option>
-            <option value="key">Вставить SSH-ключ</option>
-            <option value="password">Пароль</option>
-          </select>
+          <label className="label">Тип подключения</label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={`btn-ghost text-sm flex-1 ${!isLocal ? "ring-2 ring-indigo-500" : ""}`}
+              onClick={() =>
+                setForm({
+                  ...form,
+                  connectionType: "ssh",
+                  host: "",
+                  port: 22,
+                  username: "",
+                  credentials: { authMethod: "key", privateKey: "" },
+                })
+              }
+            >
+              SSH (удалённый VPS)
+            </button>
+            <button
+              type="button"
+              className={`btn-ghost text-sm flex-1 ${isLocal ? "ring-2 ring-indigo-500" : ""}`}
+              onClick={() =>
+                setForm({
+                  ...form,
+                  connectionType: "local",
+                  host: undefined,
+                  port: undefined,
+                  username: undefined,
+                  credentials: undefined,
+                  keyId: undefined,
+                })
+              }
+            >
+              Локальный хост
+            </button>
+          </div>
+          {isLocal && (
+            <p className="text-xs text-slate-400 mt-1">
+              Команды выполняются напрямую на хосте, где запущена панель (без SSH). Из Docker
+              используется nsenter для доступа к хосту.
+            </p>
+          )}
         </div>
 
-        {form.credentials.authMethod === "stored-key" ? (
-          <div>
-            <label className="label">Ключ из хранилища</label>
-            {keys.data?.length ? (
-              <select
-                className="input"
-                value={form.keyId ?? ""}
-                onChange={(e) => setForm({ ...form, keyId: e.target.value })}
-              >
-                {keys.data.map((k) => (
-                  <option key={k.id} value={k.id}>
-                    {k.name} ({k.type}) · {k.fingerprint.slice(0, 24)}…
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <p className="text-xs text-amber-400">
-                В хранилище нет ключей. Создайте ключ на вкладке «Ключи» или выберите другой метод.
-              </p>
-            )}
-          </div>
-        ) : form.credentials.authMethod === "key" ? (
+        {/* SSH-поля — только для SSH-серверов */}
+        {!isLocal && (
           <>
-            <div>
-              <label className="label">Приватный ключ (PEM)</label>
-              <textarea
-                className="input font-mono text-xs"
-                rows={5}
-                value={form.credentials.privateKey ?? ""}
-                onChange={(e) => setCred({ privateKey: e.target.value })}
-                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-              />
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2">
+                <label className="label">Host / IP</label>
+                <input
+                  className="input"
+                  value={form.host}
+                  onChange={(e) => setForm({ ...form, host: e.target.value })}
+                  onBlur={(e) => setForm({ ...form, host: e.target.value.trim() })}
+                  placeholder="203.0.113.10"
+                />
+              </div>
+              <div>
+                <label className="label">Порт</label>
+                <input
+                  className="input"
+                  type="number"
+                  value={form.port}
+                  onChange={(e) => setForm({ ...form, port: Number(e.target.value) })}
+                />
+              </div>
             </div>
             <div>
-              <label className="label">Passphrase (если есть)</label>
+              <label className="label">Пользователь SSH</label>
               <input
                 className="input"
-                type="password"
-                value={form.credentials.passphrase ?? ""}
-                onChange={(e) => setCred({ passphrase: e.target.value })}
+                value={form.username}
+                onChange={(e) => setForm({ ...form, username: e.target.value })}
+                placeholder="deploy"
               />
             </div>
+            <div>
+              <label className="label">Метод аутентификации</label>
+              <select
+                className="input"
+                value={form.credentials?.authMethod ?? "key"}
+                onChange={(e) => {
+                  const m = e.target.value;
+                  setForm({
+                    ...form,
+                    keyId: m === "stored-key" ? (keys.data?.[0]?.id ?? "") : undefined,
+                    credentials:
+                      m === "key"
+                        ? { authMethod: "key", privateKey: "" }
+                        : m === "password"
+                          ? { authMethod: "password", password: "" }
+                          : { authMethod: "stored-key" },
+                  });
+                }}
+              >
+                <option value="stored-key">Ключ из хранилища</option>
+                <option value="key">Вставить SSH-ключ</option>
+                <option value="password">Пароль</option>
+              </select>
+            </div>
+
+            {form.credentials?.authMethod === "stored-key" ? (
+              <div>
+                <label className="label">Ключ из хранилища</label>
+                {keys.data?.length ? (
+                  <select
+                    className="input"
+                    value={form.keyId ?? ""}
+                    onChange={(e) => setForm({ ...form, keyId: e.target.value })}
+                  >
+                    {keys.data.map((k) => (
+                      <option key={k.id} value={k.id}>
+                        {k.name} ({k.type}) · {k.fingerprint.slice(0, 24)}…
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-xs text-amber-400">
+                    В хранилище нет ключей. Создайте ключ на вкладке «Ключи» или выберите другой метод.
+                  </p>
+                )}
+              </div>
+            ) : form.credentials?.authMethod === "key" ? (
+              <>
+                <div>
+                  <label className="label">Приватный ключ (PEM)</label>
+                  <textarea
+                    className="input font-mono text-xs"
+                    rows={5}
+                    value={form.credentials?.privateKey ?? ""}
+                    onChange={(e) => setCred({ privateKey: e.target.value })}
+                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                  />
+                </div>
+                <div>
+                  <label className="label">Passphrase (если есть)</label>
+                  <input
+                    className="input"
+                    type="password"
+                    value={form.credentials?.passphrase ?? ""}
+                    onChange={(e) => setCred({ passphrase: e.target.value })}
+                  />
+                </div>
+              </>
+            ) : (
+              <div>
+                <label className="label">Пароль</label>
+                <input
+                  className="input"
+                  type="password"
+                  value={form.credentials?.password ?? ""}
+                  onChange={(e) => setCred({ password: e.target.value })}
+                />
+              </div>
+            )}
           </>
-        ) : (
-          <div>
-            <label className="label">Пароль</label>
-            <input
-              className="input"
-              type="password"
-              value={form.credentials.password ?? ""}
-              onChange={(e) => setCred({ password: e.target.value })}
-            />
-          </div>
         )}
 
         {testResult && (

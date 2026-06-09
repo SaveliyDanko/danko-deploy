@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+/** Тип подключения к серверу: по SSH (удалённый VPS) или локально (тот же хост). */
+export const connectionTypeSchema = z.enum(["ssh", "local"]);
+export type ConnectionType = z.infer<typeof connectionTypeSchema>;
+
 /**
  * Способ аутентификации при SSH-подключении к VPS.
  * - "key": приватный SSH-ключ, вставленный прямо в сервер
@@ -39,22 +43,28 @@ export type ServerCredentials = z.infer<typeof serverCredentialsSchema>;
 export const createServerSchema = z
   .object({
     name: z.string().trim().min(1, "Укажите название сервера"),
-    host: z.string().trim().min(1, "Укажите host/IP"),
-    port: z.number().int().min(1).max(65535).default(22),
-    username: z.string().trim().min(1, "Укажите пользователя SSH"),
-    credentials: serverCredentialsSchema,
+    connectionType: connectionTypeSchema.default("ssh"),
+    host: z.string().trim().min(1).optional(),
+    port: z.number().int().min(1).max(65535).optional(),
+    username: z.string().trim().min(1).optional(),
+    credentials: serverCredentialsSchema.optional(),
     /** ID ключа из хранилища (обязателен при authMethod = "stored-key") */
     keyId: z.string().optional(),
   })
-  .refine(
-    (s) => s.credentials.authMethod !== "stored-key" || !!s.keyId,
-    "Для метода «ключ из хранилища» нужно выбрать keyId",
-  );
+  .refine((s) => {
+    // Для локального сервера SSH-поля не требуются
+    if (s.connectionType === "local") return true;
+    // SSH-сервер обязан иметь host, port, username, credentials
+    if (!s.host || !s.port || !s.username || !s.credentials) return false;
+    if (s.credentials.authMethod === "stored-key") return !!s.keyId;
+    return true;
+  }, "Для SSH-сервера заполните host, пользователя и учётные данные");
 export type CreateServerInput = z.infer<typeof createServerSchema>;
 
 /** Тело запроса на обновление сервера — секреты опциональны (меняем только если переданы) */
 export const updateServerSchema = z.object({
   name: z.string().trim().min(1).optional(),
+  connectionType: connectionTypeSchema.optional(),
   host: z.string().trim().min(1).optional(),
   port: z.number().int().min(1).max(65535).optional(),
   username: z.string().trim().min(1).optional(),
@@ -67,10 +77,11 @@ export type UpdateServerInput = z.infer<typeof updateServerSchema>;
 export const serverPublicSchema = z.object({
   id: z.string(),
   name: z.string(),
+  connectionType: connectionTypeSchema,
   host: z.string(),
   port: z.number(),
   username: z.string(),
-  authMethod: sshAuthMethodSchema,
+  authMethod: sshAuthMethodSchema.nullable(),
   keyId: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),

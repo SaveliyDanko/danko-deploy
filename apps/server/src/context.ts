@@ -1,4 +1,4 @@
-import { SshExecutor } from "@dankodeploy/core";
+import { LocalExecutor, SshExecutor } from "@dankodeploy/core";
 import { createDb } from "@dankodeploy/db";
 
 import type { AppConfig } from "./config.js";
@@ -28,6 +28,7 @@ import { WsHub } from "./ws/WsHub.js";
 export interface AppContext {
   config: AppConfig;
   ssh: SshExecutor;
+  local: LocalExecutor;
   hub: WsHub;
   auth: AuthService;
   servers: ServerService;
@@ -54,13 +55,15 @@ export interface AppContext {
 
 export function buildContext(config: AppConfig): AppContext {
   const { db, sqlite } = createDb(config.databaseUrl);
+  const local = new LocalExecutor();
   const ssh = new SshExecutor();
+  ssh.setLocal(local);
+
   const hub = new WsHub();
   const auth = new AuthService(config.authPasswordHash, config.sessionSecret);
 
   const servers = new ServerService(db, ssh, config.masterKey);
   const keys = new SshKeyService(db, ssh, config.masterKey, servers);
-  // Разрываем цикл: серверу нужен доступ к расшифрованным ключам из хранилища.
   servers.setKeyResolver((keyId) => {
     const row = keys.getRow(keyId);
     return row ? keys.decrypt(row) : undefined;
@@ -87,6 +90,7 @@ export function buildContext(config: AppConfig): AppContext {
   return {
     config,
     ssh,
+    local,
     hub,
     auth,
     servers,

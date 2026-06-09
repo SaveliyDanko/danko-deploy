@@ -1,5 +1,6 @@
 export * from "./crypto.js";
 export * from "./ssh/SshExecutor.js";
+export * from "./local/LocalExecutor.js";
 export * from "./ssh/KeyManager.js";
 export * from "./metrics/MetricsCollector.js";
 export * from "./metrics/StorageCollector.js";

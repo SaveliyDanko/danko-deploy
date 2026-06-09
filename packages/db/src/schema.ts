@@ -45,17 +45,20 @@ export const gitKeys = sqliteTable("git_keys", {
     .default(sql`(current_timestamp)`),
 });
 
-/** Зарегистрированные VPS. Секреты SSH хранятся зашифрованными (AES-256-GCM). */
+/** Зарегистрированные серверы (удалённые VPS или локальный хост). Секреты SSH хранятся зашифрованными (AES-256-GCM). */
 export const servers = sqliteTable("servers", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  host: text("host").notNull(),
+  /** Тип подключения: ssh (по SSH к удалённому VPS) или local (тот же хост, где запущена панель) */
+  connectionType: text("connection_type", { enum: ["ssh", "local"] }).notNull().default("ssh"),
+  host: text("host").notNull().default("localhost"),
   port: integer("port").notNull().default(22),
-  username: text("username").notNull(),
-  authMethod: text("auth_method", { enum: ["key", "password", "stored-key"] }).notNull(),
+  username: text("username").notNull().default("root"),
+  authMethod: text("auth_method", { enum: ["key", "password", "stored-key"] }),
   /**
    * Зашифрованный JSON {privateKey?, passphrase?, password?} для inline-аутентификации
    * (authMethod = key|password). Для authMethod = stored-key пусто — используется keyId.
+   * Для локального сервера (connectionType=local) — NULL.
    */
   secretEnc: text("secret_enc"),
   /** Ссылка на ключ из хранилища (authMethod = stored-key) */

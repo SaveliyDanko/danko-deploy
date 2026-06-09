@@ -19,10 +19,11 @@ export function toServerPublic(row: ServerRow): ServerPublic {
   return {
     id: row.id,
     name: row.name,
+    connectionType: row.connectionType as "ssh" | "local",
     host: row.host,
     port: row.port,
     username: row.username,
-    authMethod: row.authMethod,
+    authMethod: row.authMethod as "key" | "password" | "stored-key" | null,
     keyId: row.keyId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -34,11 +35,8 @@ export type KeyResolver = (keyId: string) => { privateKey: string; passphrase?: 
 
 /**
  * CRUD по серверам + сборка SshTarget (с расшифровкой секретов).
- * Секреты шифруются мастер-ключом при сохранении и расшифровываются только
- * в момент построения SshTarget для конкретной операции.
  */
 export class ServerService {
-  /** Лениво внедряется из SshKeyService — разрывает циклическую зависимость. */
   private keyResolver: KeyResolver | undefined;
 
   constructor(
@@ -47,7 +45,6 @@ export class ServerService {
     private readonly masterKey: Buffer,
   ) {}
 
-  /** Устанавливает резолвер ключей из хранилища (вызывается при сборке контекста). */
   setKeyResolver(resolver: KeyResolver): void {
     this.keyResolver = resolver;
   }
@@ -65,11 +62,6 @@ export class ServerService {
     return row ? toServerPublic(row) : undefined;
   }
 
-  /**
-   * Возвращает последние `tail` строк логов docker-контейнера (`docker logs`).
-   * Имя контейнера валидируется (только символы docker-имён), чтобы не дать
-   * инъекцию в shell. tail ограничивается разумным диапазоном.
-   */
   async containerLogs(
     serverId: string,
     name: string,
@@ -78,7 +70,6 @@ export class ServerService {
     const row = this.get(serverId);
     if (!row) return { error: "Сервер не найден" };
 
-    // Имена docker-контейнеров: буквы/цифры/_/./-. Любой другой символ — отказ.
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
       return { error: "Недопустимое имя контейнера" };
     }
@@ -97,25 +88,33 @@ export class ServerService {
 
   create(input: CreateServerInput): ServerPublic {
     const id = nanoid();
-    const isStored = input.credentials.authMethod === "stored-key";
-    // Для stored-key inline-секреты не храним; иначе шифруем учётные данные.
-    const secretEnc = isStored
-      ? null
-      : encryptSecret(JSON.stringify(input.credentials), this.masterKey);
+    const isLocal = input.connectionType === "local";
+    const isStored = !isLocal && input.credentials?.authMethod === "stored-key";
+
+    const secretEnc =
+      isLocal || isStored
+        ? null
+        : input.credentials
+          ? encryptSecret(JSON.stringify(input.credentials), this.masterKey)
+          : null;
+
     this.db
       .insert(servers)
       .values({
         id,
         name: input.name,
-        host: input.host,
-        port: input.port,
-        username: input.username,
-        authMethod: input.credentials.authMethod,
+        connectionType: input.connectionType,
+        host: isLocal ? "localhost" : (input.host ?? "localhost"),
+        port: isLocal ? 22 : (input.port ?? 22),
+        username: isLocal ? "root" : (input.username ?? "root"),
+        authMethod: isLocal ? null : (input.credentials?.authMethod ?? null),
         secretEnc,
         keyId: isStored ? (input.keyId ?? null) : null,
       })
       .run();
-    return toServerPublic(this.get(id)!);
+    const row = this.get(id);
+    if (!row) throw new Error("Не удалось создать сервер");
+    return toServerPublic(row);
   }
 
   update(id: string, input: UpdateServerInput): ServerPublic | undefined {
@@ -128,6 +127,8 @@ export class ServerService {
     if (input.port !== undefined) patch.port = input.port;
     if (input.username !== undefined) patch.username = input.username;
     if (input.keyId !== undefined) patch.keyId = input.keyId;
+    if (input.connectionType !== undefined) patch.connectionType = input.connectionType;
+
     if (input.credentials) {
       patch.authMethod = input.credentials.authMethod;
       if (input.credentials.authMethod === "stored-key") {
@@ -140,9 +141,10 @@ export class ServerService {
     }
 
     this.db.update(servers).set(patch).where(eq(servers.id, id)).run();
-    // Сбрасываем кэшированное соединение — параметры могли измениться
     this.ssh.disconnect(id);
-    return toServerPublic(this.get(id)!);
+    const row = this.get(id);
+    if (!row) return undefined;
+    return toServerPublic(row);
   }
 
   delete(id: string): boolean {
@@ -151,23 +153,31 @@ export class ServerService {
     return res.changes > 0;
   }
 
-  /** Сбрасывает кэшированное SSH-соединение к серверу. */
   disconnect(id: string): void {
     this.ssh.disconnect(id);
   }
 
-  /**
-   * Строит SshTarget из строки БД, расшифровывая секреты.
-   * Для authMethod = "stored-key" подтягивает приватный ключ из хранилища через keyResolver.
-   */
   toTarget(row: ServerRow): SshTarget {
+    if (row.connectionType === "local") {
+      return {
+        id: row.id,
+        host: "localhost",
+        port: 22,
+        username: "root",
+        credentials: { authMethod: "key", privateKey: "" },
+        connectionType: "local",
+      };
+    }
+
     let credentials: ServerCredentials;
 
     if (row.authMethod === "stored-key") {
       if (!row.keyId) throw new Error("Сервер использует ключ из хранилища, но keyId не задан");
       const resolved = this.keyResolver?.(row.keyId);
       if (!resolved) {
-        throw new Error("Ключ из хранилища не найден (возможно, удалён). Назначьте серверу другой ключ.");
+        throw new Error(
+          "Ключ из хранилища не найден (возможно, удалён). Назначьте серверу другой ключ.",
+        );
       }
       credentials = {
         authMethod: "key",
@@ -188,20 +198,33 @@ export class ServerService {
     };
   }
 
-  /** Проверяет соединение с уже сохранённым сервером. */
-  async testConnection(id: string): Promise<ConnectionTestResult | undefined> {
+  testConnection(id: string): Promise<ConnectionTestResult | undefined> {
     const row = this.get(id);
-    if (!row) return undefined;
+    if (!row) return Promise.resolve(undefined);
     return this.ssh.testConnection(this.toTarget(row));
   }
 
-  /** Проверяет соединение с ещё не сохранёнными параметрами (форма создания). */
-  async testRaw(input: CreateServerInput): Promise<ConnectionTestResult> {
-    let credentials = input.credentials;
-    if (input.credentials.authMethod === "stored-key") {
+  testRaw(input: CreateServerInput): Promise<ConnectionTestResult> {
+    if (input.connectionType === "local") {
+      return this.ssh.testConnection({
+        id: "probe",
+        host: "localhost",
+        port: 22,
+        username: "root",
+        credentials: { authMethod: "key", privateKey: "" },
+        connectionType: "local",
+      });
+    }
+
+    let credentials = input.credentials!;
+    if (credentials.authMethod === "stored-key") {
       const resolved = input.keyId ? this.keyResolver?.(input.keyId) : undefined;
       if (!resolved) {
-        return { ok: false, error: "Выбранный ключ из хранилища не найден", latencyMs: 0 };
+        return Promise.resolve({
+          ok: false,
+          error: "Выбранный ключ из хранилища не найден",
+          latencyMs: 0,
+        });
       }
       credentials = {
         authMethod: "key",
@@ -211,9 +234,9 @@ export class ServerService {
     }
     return this.ssh.testConnection({
       id: "probe",
-      host: input.host,
-      port: input.port,
-      username: input.username,
+      host: input.host!,
+      port: input.port!,
+      username: input.username!,
       credentials,
     });
   }

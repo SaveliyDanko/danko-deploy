@@ -31,7 +31,11 @@ services:
     volumes:
       - ./data:/app/data
       - ./backups:/app/backups
+      # Проброс docker.sock для локального управления хостом из контейнера
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
+    # Pid-неймспейс хоста нужен для nsenter доступа к хосту из контейнера
+    pid: "host"
     # Порт НЕ публикуется: доступ к backend — только через nginx по docker-сети.
 
   web:
