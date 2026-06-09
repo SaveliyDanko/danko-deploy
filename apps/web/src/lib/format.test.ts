@@ -65,4 +65,18 @@ describe("formatDate", () => {
     expect(out).not.toBe("—");
     expect(out.length).toBeGreaterThan(0);
   });
+
+  it("ISO с Z отображается в GMT+3 (12:30 UTC → 15:30)", () => {
+    // dateStyle:short + ru-RU → "07.06.2026, 15:30"; не зависит от пояса машины.
+    expect(formatDate("2026-06-07T12:30:00.000Z")).toContain("15:30");
+  });
+
+  it("SQLite current_timestamp (без Z) трактуется как UTC и сдвигается в GMT+3", () => {
+    // "21:40:05" UTC → 00:40 следующего дня по Москве.
+    expect(formatDate("2026-06-09 21:40:05")).toContain("00:40");
+  });
+
+  it("сдвиг через полночь меняет дату", () => {
+    expect(formatDate("2026-06-09 21:40:05")).toContain("10.06.2026");
+  });
 });

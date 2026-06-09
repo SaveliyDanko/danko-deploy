@@ -20,9 +20,27 @@ export function formatUptime(seconds: number | null | undefined): string {
   return `${m}м`;
 }
 
+/** Часовой пояс отображения дат в UI (GMT+3, без перехода на летнее время). */
+const DISPLAY_TIME_ZONE = "Europe/Moscow";
+
+/**
+ * Форматирует дату для UI в часовом поясе GMT+3, независимо от пояса машины.
+ * Источники времени:
+ *  - new Date().toISOString() на бэкенде → строка с суффиксом Z (UTC) — парсится однозначно;
+ *  - SQLite current_timestamp ("YYYY-MM-DD HH:MM:SS", тоже UTC, но БЕЗ Z) — `new Date()`
+ *    распарсил бы её как локальное время, поэтому такую форму нормализуем в UTC вручную.
+ */
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const d = new Date(iso);
+  // SQLite current_timestamp: "2026-06-09 21:40:05" (без T и без Z) — это UTC, помечаем как UTC.
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(iso)
+    ? iso.replace(" ", "T") + "Z"
+    : iso;
+  const d = new Date(normalized);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" });
+  return d.toLocaleString("ru-RU", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: DISPLAY_TIME_ZONE,
+  });
 }
