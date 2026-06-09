@@ -6,6 +6,8 @@ import type { ClientChannel } from "ssh2";
 
 import type { ExecResult, ExecStreamHandlers, SshTarget } from "../ssh/SshExecutor.js";
 
+const COMMAND_TIMEOUT = 60_000;
+
 /**
  * Выполняет команды локально на том же хосте, где запущена панель.
  * Использует child_process (execSync / spawn) вместо SSH.
@@ -26,16 +28,27 @@ export class LocalExecutor {
     return `nsenter -t 1 -m -u -i -n -p -- ${command}`;
   }
 
-  /** Выполняет команду и возвращает полный результат. */
+  /** Выполняет команду и возвращает полный результат (таймаут 60с). */
   exec(target: SshTarget, command: string, cwd?: string): ExecResult {
     const fullCmd = this.wrap(command);
     const options: { cwd?: string; timeout?: number } = {};
     if (cwd) options.cwd = cwd;
     try {
-      const stdout = execSync(fullCmd, { ...options, encoding: "utf-8", timeout: 120_000 });
+      const stdout = execSync(fullCmd, {
+        ...options,
+        encoding: "utf-8",
+        timeout: COMMAND_TIMEOUT,
+      });
       return { code: 0, stdout, stderr: "" };
     } catch (err: unknown) {
-      const e = err as { code?: number | null; stdout?: string; stderr?: string };
+      const e = err as { code?: number | null; stdout?: string; stderr?: string; killed?: boolean };
+      if (e.killed) {
+        return {
+          code: -1,
+          stdout: e.stdout ?? "",
+          stderr: `Команда прервана по таймауту (${COMMAND_TIMEOUT / 1000}с)`,
+        };
+      }
       return {
         code: e.code ?? -1,
         stdout: e.stdout ?? "",
@@ -44,6 +57,7 @@ export class LocalExecutor {
     }
   }
 
+  /** Выполняет команду, стримя stdout/stderr построчно в колбэки (таймаут 60с). */
   async execStream(
     target: SshTarget,
     command: string,
@@ -52,6 +66,12 @@ export class LocalExecutor {
   ): Promise<number> {
     const fullCmd = this.wrap(command);
     return new Promise<number>((resolve) => {
+      const timer = setTimeout(() => {
+        proc.kill("SIGKILL");
+        handlers.onStderr?.(`Команда прервана по таймауту (${COMMAND_TIMEOUT / 1000}с)`);
+        resolve(-1);
+      }, COMMAND_TIMEOUT);
+
       const proc = spawn(fullCmd, {
         shell: true,
         cwd,
@@ -78,11 +98,15 @@ export class LocalExecutor {
       });
 
       proc.on("close", (code) => {
+        clearTimeout(timer);
         if (stdoutBuf) handlers.onStdout?.(stdoutBuf);
         if (stderrBuf) handlers.onStderr?.(stderrBuf);
         resolve(code ?? -1);
       });
-      proc.on("error", () => resolve(-1));
+      proc.on("error", () => {
+        clearTimeout(timer);
+        resolve(-1);
+      });
     });
   }
 
@@ -121,26 +145,13 @@ export class LocalExecutor {
 
   /**
    * Открывает интерактивный shell с настоящим PTY на локальном хосте.
-   *
-   * Использует системную утилиту `script` (util-linux) для создания
-   * псевдотерминала: `script -qfc "exec $SHELL" /dev/null`.
-   *
-   * `script` создаёт PTY-пару, запускает shell внутри неё, и пробрасывает
-   * stdin→PTY и PTY→stdout через pipe'ы. Это даёт bash полноценный интерактивный
-   * режим: промпт, readline, цвета, управляющие последовательности.
-   *
-   * Из Docker используется `nsenter -t 1` для доступа к хосту.
+   * Использует системную утилиту `script` (util-linux): `script -qfc "exec $SHELL" /dev/null`.
    */
   openShell(
     target: SshTarget,
     opts: { rows: number; cols: number; term?: string },
   ): ClientChannel {
     const shell = process.env.SHELL ?? "/bin/bash";
-
-    // script -qfc "exec bash" /dev/null
-    //   -q  тихий режим (не пишет "Script started/done")
-    //   -f  flush после каждого write (нужно для интерактивности)
-    //   -c CMD  команда вместо интерактивного shell
     const cmd = `script -qfc "exec ${shell}" /dev/null`;
     const fullCmd = this.wrap(cmd);
 
@@ -155,9 +166,6 @@ export class LocalExecutor {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    // Эмулируем интерфейс ClientChannel для совместимости с TerminalBridge.
-    // ssh2 ClientChannel использует: .on("data", cb), .on("close", cb),
-    // .write(buf), .setWindow(rows, cols), .end(), .close().
     const dataHandlers: Array<(buf: Buffer) => void> = [];
     const closeHandlers: Array<(code?: number) => void> = [];
 
@@ -174,17 +182,11 @@ export class LocalExecutor {
 
     const channel = {
       on: (event: string, handler: (...args: unknown[]) => void): void => {
-        if (event === "data") {
-          dataHandlers.push(handler as (buf: Buffer) => void);
-        } else if (event === "close") {
-          closeHandlers.push(handler as (code?: number) => void);
-        }
+        if (event === "data") dataHandlers.push(handler as (buf: Buffer) => void);
+        else if (event === "close") closeHandlers.push(handler as (code?: number) => void);
       },
-      write: (data: string): boolean => {
-        return proc.stdin?.write(data) ?? false;
-      },
+      write: (data: string): boolean => proc.stdin?.write(data) ?? false,
       setWindow: (_rows: number, _cols: number): void => {
-        // stty применяется к PTY внутри script
         this.exec(target, `stty rows ${_rows} cols ${_cols} 2>/dev/null || true`);
       },
       end: (): void => {
@@ -220,11 +222,7 @@ export class LocalExecutor {
     }
   }
 
-  disconnect(_serverId: string): void {
-    // Никаких соединений не держим
-  }
+  disconnect(_serverId: string): void {}
 
-  disposeAll(): void {
-    // Ничего не чистим
-  }
+  disposeAll(): void {}
 }
