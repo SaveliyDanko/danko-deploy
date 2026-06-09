@@ -1,6 +1,6 @@
 import type { AiAgentType } from "@dankodeploy/shared";
 
-import type { SshExecutor, SshTarget } from "../ssh/SshExecutor.js";
+import { isLocalTarget, type SshExecutor, type SshTarget } from "../ssh/SshExecutor.js";
 
 /** Колбэк логирования установки (стримится в WS-канал ai:<agentId>). */
 export type AgentLog = (line: string, stream: "stdout" | "stderr" | "info") => void;
@@ -54,15 +54,23 @@ function shellPath(s: string): string {
 export class AgentInstaller {
   constructor(private readonly ssh: SshExecutor) {}
 
-  /** Убеждается, что на сервере есть tmux (ставит при отсутствии через доступный пакетник). */
+  /**
+   * Убеждается, что на сервере есть tmux.
+   * Для локального сервера: sudo через child_process без TTY зависает на запросе пароля,
+   * поэтому сразу просим пользователя установить tmux вручную.
+   */
   async ensureTmux(target: SshTarget, log: AgentLog): Promise<void> {
     const check = await this.ssh.exec(target, "command -v tmux");
     if (check.code === 0) {
       log("tmux уже установлен", "info");
       return;
     }
+    if (isLocalTarget(target)) {
+      throw new Error(
+        "tmux не найден на локальном сервере. Установите вручную: sudo apt-get install -y tmux",
+      );
+    }
     log("Устанавливаю tmux...", "info");
-    // Пробуем популярные пакетники; что-нибудь да сработает.
     const installCmd =
       "(command -v apt-get && sudo apt-get update && sudo apt-get install -y tmux) || " +
       "(command -v dnf && sudo dnf install -y tmux) || " +
@@ -70,7 +78,8 @@ export class AgentInstaller {
       "(command -v apk && sudo apk add tmux) || " +
       "(command -v brew && brew install tmux)";
     const code = await this.streamRun(target, installCmd, log);
-    if (code !== 0) throw new Error("Не удалось установить tmux (нужен один из apt/dnf/yum/apk/brew)");
+    if (code !== 0)
+      throw new Error("Не удалось установить tmux (нужен один из apt/dnf/yum/apk/brew)");
   }
 
   /** Убеждается, что CLI агента установлен; ставит при отсутствии. Требует Node для npm-агентов. */
@@ -81,7 +90,6 @@ export class AgentInstaller {
       log(`${type} уже установлен`, "info");
       return;
     }
-    // npm-агентам нужен Node.
     const node = await this.ssh.exec(target, "command -v node && command -v npm");
     if (node.code !== 0) {
       throw new Error(
@@ -146,9 +154,14 @@ export class AgentInstaller {
       `tmux new-session -d -s ${shellQuote(session)} -c ${shellPath(workdir)} ${shellQuote(`bash -lc ${shellQuote(wrappedStart)}`)}`,
     );
     if (create.code !== 0) {
-      throw new Error(create.stderr.trim() || `Не удалось создать tmux-сессию (код ${create.code})`);
+      throw new Error(
+        create.stderr.trim() || `Не удалось создать tmux-сессию (код ${create.code})`,
+      );
     }
-    const alive = await this.ssh.exec(target, `sleep 0.2 && tmux has-session -t ${shellQuote(session)} 2>/dev/null`);
+    const alive = await this.ssh.exec(
+      target,
+      `sleep 0.2 && tmux has-session -t ${shellQuote(session)} 2>/dev/null`,
+    );
     if (alive.code !== 0) {
       throw new Error(
         `tmux-сессия ${session} сразу завершилась. Проверьте, что команда ${spec.startCommand} запускается на сервере.`,
