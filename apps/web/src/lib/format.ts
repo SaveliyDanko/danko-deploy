@@ -44,3 +44,42 @@ export function formatDate(iso: string | null | undefined): string {
     timeZone: DISPLAY_TIME_ZONE,
   });
 }
+
+/**
+ * Переводит ведущие UTC-метки `docker logs --timestamps` в GMT+3 построчно.
+ * Docker ставит в начало каждой строки метку вида "2026-06-09T10:12:01.506592110Z "
+ * (всегда UTC). Заменяем ТОЛЬКО эту ведущую метку на локальное время GMT+3
+ * ("2026-06-09 13:12:01.506"), не трогая остальной текст строки (там могут быть
+ * свои таймстампы приложения). Строки без ведущей ISO-метки остаются как есть.
+ */
+const DOCKER_TS_RE =
+  /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(\.\d+)?Z (.*)$/;
+
+export function localizeLogTimestamps(logs: string): string {
+  return logs
+    .split("\n")
+    .map((line) => {
+      const m = DOCKER_TS_RE.exec(line);
+      if (!m) return line;
+      const [, , , frac = "", rest] = m;
+      const d = new Date(line.slice(0, line.indexOf(" ")));
+      if (Number.isNaN(d.getTime())) return line;
+      // Дата+время в GMT+3 (en-CA даёт ISO-подобный формат YYYY-MM-DD, HH:MM:SS).
+      const local = d
+        .toLocaleString("en-CA", {
+          timeZone: DISPLAY_TIME_ZONE,
+          hour12: false,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        })
+        .replace(", ", " ");
+      // Сохраняем миллисекунды из исходной метки (первые 3 знака дробной части).
+      const ms = frac ? frac.slice(0, 4) : "";
+      return `${local}${ms} ${rest}`;
+    })
+    .join("\n");
+}

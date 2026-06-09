@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatBytes, formatDate, formatUptime } from "./format.js";
+import { formatBytes, formatDate, formatUptime, localizeLogTimestamps } from "./format.js";
 
 describe("formatBytes", () => {
   it("null/undefined → тире", () => {
@@ -78,5 +78,35 @@ describe("formatDate", () => {
 
   it("сдвиг через полночь меняет дату", () => {
     expect(formatDate("2026-06-09 21:40:05")).toContain("10.06.2026");
+  });
+});
+
+describe("localizeLogTimestamps", () => {
+  it("UTC-метку docker logs переводит в GMT+3 (10:12 → 13:12), сохраняя текст", () => {
+    const out = localizeLogTimestamps("2026-06-09T10:12:01.506592110Z FetchError: timeout");
+    expect(out).toBe("2026-06-09 13:12:01.506 FetchError: timeout");
+  });
+
+  it("метка без миллисекунд", () => {
+    expect(localizeLogTimestamps("2026-06-09T10:12:01Z hello")).toBe(
+      "2026-06-09 13:12:01 hello",
+    );
+  });
+
+  it("строка без ведущей метки остаётся как есть", () => {
+    expect(localizeLogTimestamps("just a log line")).toBe("just a log line");
+  });
+
+  it("обрабатывает каждую строку независимо", () => {
+    const input = "2026-06-09T10:00:00.000000000Z first\nno-ts line\n2026-06-09T10:00:01.250000000Z second";
+    expect(localizeLogTimestamps(input)).toBe(
+      "2026-06-09 13:00:00.000 first\nno-ts line\n2026-06-09 13:00:01.250 second",
+    );
+  });
+
+  it("сдвиг через полночь меняет дату в метке лога", () => {
+    expect(localizeLogTimestamps("2026-06-09T22:30:00.000000000Z x")).toBe(
+      "2026-06-10 01:30:00.000 x",
+    );
   });
 });

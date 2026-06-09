@@ -14,7 +14,7 @@ import { Link } from "react-router-dom";
 
 import { EmptyState, MeterBar, Spinner } from "../components/ui.js";
 import { api } from "../lib/api.js";
-import { formatBytes, formatDate, formatUptime } from "../lib/format.js";
+import { formatBytes, formatDate, formatUptime, localizeLogTimestamps } from "../lib/format.js";
 import { useWebSocket } from "../lib/ws.js";
 
 export function DashboardPage() {
@@ -664,7 +664,11 @@ function ContainerLogsModal({
 
         {/* Окно логов растёт под размер карточки (flex-1) и скроллится. */}
         <pre className="flex-1 overflow-auto whitespace-pre rounded-lg bg-ink p-3 font-mono text-[11px] leading-relaxed text-slate-300">
-          {logs.isPending && !logs.data ? "Загрузка…" : logs.data?.logs ?? ""}
+          {logs.isPending && !logs.data
+            ? "Загрузка…"
+            : logs.data?.logs
+              ? localizeLogTimestamps(logs.data.logs)
+              : ""}
         </pre>
       </div>
     </div>
