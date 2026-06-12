@@ -6,13 +6,13 @@
 # --- ОБЯЗАТЕЛЬНОЕ (минимум ввода) ---------------------------------------------
 
 # Домен панели (A-запись должна указывать на VPS — нужно для Let's Encrypt).
-dankodeploy_domain: panel.example.com
+dankodeploy_domain: deploy.dankosava.ru
 
 # Git-репозиторий с кодом DankoDeploy (https или ssh).
-dankodeploy_repo: "https://github.com/ВАШ-АККАУНТ/DankoDeploy.git"
+dankodeploy_repo: "https://github.com/SaveliyDanko/danko-deploy.git"
 
 # Email для регистрации сертификата Let's Encrypt (уведомления об истечении).
-dankodeploy_acme_email: you@example.com
+dankodeploy_acme_email: dankosaveliy.m@gmail.com
 
 # Пароль панели — задаётся в vault.yml (см. vault.example.yml), переменная:
 #   vault_dankodeploy_panel_password
