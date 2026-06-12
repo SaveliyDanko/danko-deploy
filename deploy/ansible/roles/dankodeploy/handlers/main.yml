@@ -1,12 +1,14 @@
 ---
+# --env-file явно: compose ищет .env рядом с compose-файлом (deploy/.env), а он
+# лежит в корне проекта ({{ dankodeploy_dir }}/.env) — без явного пути секреты пустые.
 - name: rebuild dankodeploy
   ansible.builtin.command:
-    cmd: docker compose -f {{ dankodeploy_compose_file }} up -d --build
+    cmd: docker compose --env-file {{ dankodeploy_dir }}/.env -f {{ dankodeploy_compose_file }} up -d --build
     chdir: "{{ dankodeploy_dir }}"
   become_user: "{{ dankodeploy_user }}"
 
 - name: restart dankodeploy
   ansible.builtin.command:
-    cmd: docker compose -f {{ dankodeploy_compose_file }} up -d
+    cmd: docker compose --env-file {{ dankodeploy_dir }}/.env -f {{ dankodeploy_compose_file }} up -d
     chdir: "{{ dankodeploy_dir }}"
   become_user: "{{ dankodeploy_user }}"
