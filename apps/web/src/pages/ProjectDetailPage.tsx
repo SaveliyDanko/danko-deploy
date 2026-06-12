@@ -56,14 +56,14 @@ export function ProjectDetailPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <Link to="/projects" className="btn-ghost mb-1.5 inline-flex items-center gap-1 px-2.5 py-1 text-xs">
             <span aria-hidden>←</span> Все проекты
           </Link>
           <h1 className="text-xl font-semibold">{p.name}</h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button className="btn-ghost" onClick={() => setEditing(true)}>
             Изменить
           </button>

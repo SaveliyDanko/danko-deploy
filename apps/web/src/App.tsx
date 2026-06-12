@@ -105,9 +105,12 @@ export function App() {
   const [deployLog, setDeployLog] = useState<DeployLogDrawerState | null>(
     getDeployLogDrawerState,
   );
+  // Мобильное меню (бургер). Закрывается при смене маршрута.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const me = useQuery({ queryKey: ["auth", "me"], queryFn: api.me });
 
   useEffect(() => subscribeDeployLogDrawer(setDeployLog), []);
+  useEffect(() => setMobileNavOpen(false), [location.pathname]);
 
   useEffect(() => {
     const section = getSection(location.pathname);
@@ -150,11 +153,13 @@ export function App() {
   return (
     <div className="min-h-screen">
       <header className="border-b border-edge bg-panel/60 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center gap-6 px-6 py-3">
-          <div className="flex items-center gap-2">
-            <span className="text-lg font-bold tracking-tight text-indigo-400">⚡ DankoDeploy</span>
-          </div>
-          <nav className="flex gap-1">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:gap-6 sm:px-6">
+          <span className="text-lg font-bold tracking-tight text-indigo-400 whitespace-nowrap">
+            ⚡ DankoDeploy
+          </span>
+
+          {/* Десктоп: горизонтальный ряд пунктов. Прячется на узких экранах. */}
+          <nav className="hidden flex-wrap gap-1 lg:flex">
             {resolvedNavItems.map((item) => (
               <Link
                 key={item.to}
@@ -167,17 +172,55 @@ export function App() {
               </Link>
             ))}
           </nav>
+
           {me.data?.authRequired && (
             <button
-              className="ml-auto btn-ghost px-3 py-1.5 text-xs"
+              className="ml-auto hidden btn-ghost px-3 py-1.5 text-xs lg:inline-flex"
               onClick={() => logout.mutate()}
             >
               Выйти
             </button>
           )}
+
+          {/* Мобайл: бургер. Виден до lg. */}
+          <button
+            className="ml-auto btn-ghost px-2.5 py-1.5 lg:hidden"
+            aria-label="Меню"
+            aria-expanded={mobileNavOpen}
+            onClick={() => setMobileNavOpen((v) => !v)}
+          >
+            {mobileNavOpen ? "✕" : "☰"}
+          </button>
         </div>
+
+        {/* Мобильное выпадающее меню */}
+        {mobileNavOpen && (
+          <nav className="border-t border-edge px-4 py-2 lg:hidden">
+            <div className="mx-auto grid max-w-6xl grid-cols-2 gap-1 sm:grid-cols-3">
+              {resolvedNavItems.map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.href}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                    item.active ? "bg-indigo-600 text-white" : "text-slate-300 hover:bg-edge"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              ))}
+              {me.data?.authRequired && (
+                <button
+                  className="rounded-lg px-3 py-2 text-left text-sm font-medium text-rose-400 hover:bg-edge"
+                  onClick={() => logout.mutate()}
+                >
+                  Выйти
+                </button>
+              )}
+            </div>
+          </nav>
+        )}
       </header>
-      <main className="mx-auto max-w-6xl px-6 py-6">
+      <main className="mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-6">
         <Outlet />
       </main>
       {deployLog && (
