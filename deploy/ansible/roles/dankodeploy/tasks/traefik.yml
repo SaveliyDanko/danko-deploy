@@ -1,0 +1,58 @@
+---
+# Общий edge-прокси Traefik (TLS + маршрутизация по доменам). Делает деплой
+# независимым от состояния сервера: если Traefik уже крутится — не трогаем; если
+# нет — поднимаем свой. Сеть web — общая для Traefik и всех сайтов/панели.
+
+- name: Создать общую docker-сеть web
+  community.docker.docker_network:
+    name: web
+    state: present
+  become_user: "{{ dankodeploy_user }}"
+
+# Определяем, есть ли уже запущенный Traefik (любой контейнер с image traefik).
+- name: Проверить, запущен ли уже Traefik
+  ansible.builtin.shell:
+    cmd: "docker ps --filter ancestor=traefik --format '{% raw %}{{.Names}}{% endraw %}' | head -n1"
+  register: dankodeploy_existing_traefik
+  changed_when: false
+  become_user: "{{ dankodeploy_user }}"
+
+- name: Развернуть собственный Traefik (если на сервере его ещё нет)
+  when: dankodeploy_manage_traefik | bool and dankodeploy_existing_traefik.stdout == ""
+  block:
+    - name: Каталог Traefik
+      ansible.builtin.file:
+        path: "{{ dankodeploy_traefik_dir }}"
+        state: directory
+        owner: "{{ dankodeploy_user }}"
+        group: "{{ dankodeploy_user }}"
+        mode: "0750"
+
+    - name: Каталог для сертификатов Traefik
+      ansible.builtin.file:
+        path: "{{ dankodeploy_traefik_dir }}/letsencrypt"
+        state: directory
+        owner: "{{ dankodeploy_user }}"
+        group: "{{ dankodeploy_user }}"
+        mode: "0700"
+
+    - name: Положить compose Traefik
+      ansible.builtin.template:
+        src: traefik-compose.yml.j2
+        dest: "{{ dankodeploy_traefik_dir }}/docker-compose.yml"
+        owner: "{{ dankodeploy_user }}"
+        group: "{{ dankodeploy_user }}"
+        mode: "0644"
+
+    - name: Поднять Traefik
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: "{{ dankodeploy_traefik_dir }}"
+      become_user: "{{ dankodeploy_user }}"
+      register: dankodeploy_traefik_up
+      changed_when: "'Started' in dankodeploy_traefik_up.stderr or 'Created' in dankodeploy_traefik_up.stderr"
+
+- name: Сообщить, что используется существующий Traefik
+  ansible.builtin.debug:
+    msg: "Обнаружен запущенный Traefik ({{ dankodeploy_existing_traefik.stdout }}) — используем его, свой не поднимаем."
+  when: dankodeploy_existing_traefik.stdout != ""

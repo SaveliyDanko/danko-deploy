@@ -27,8 +27,8 @@ dankodeploy_branch: main
 # Куда клонировать на сервере.
 dankodeploy_dir: /opt/dankodeploy
 
-# Прод-compose из репозитория.
-dankodeploy_compose_file: docker-compose.prod.yml
+# Прод-compose из репозитория (путь относительно dankodeploy_dir).
+dankodeploy_compose_file: deploy/docker-compose.yml
 
 # Пользователь-владелец каталога (создаётся, если нет; от него работает git/compose).
 dankodeploy_user: dankodeploy
@@ -36,3 +36,12 @@ dankodeploy_user: dankodeploy
 # Использовать staging-CA Let's Encrypt (для тестов, без лимитов на выпуск).
 # true — пока отлаживаете; false — боевой сертификат.
 dankodeploy_acme_staging: false
+
+# --- Traefik (общий edge) -----------------------------------------------------
+# Управлять Traefik этой ролью: если на сервере его НЕТ — поднять свой; если ЕСТЬ —
+# использовать существующий (роль это определяет автоматически). false — никогда не
+# трогать Traefik (вы управляете им сами).
+dankodeploy_manage_traefik: true
+
+# Каталог собственного Traefik (если роль его поднимает).
+dankodeploy_traefik_dir: /opt/traefik

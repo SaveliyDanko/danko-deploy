@@ -23,10 +23,6 @@ data/
 # backups storage (local)
 backups/
 
-# TLS-сертификаты и ACME-челленджи прод-раскатки
-deploy/letsencrypt/
-deploy/certbot-www/
-
 # Ansible: заполненный инвентарь и vault с секретами (примеры — коммитим)
 deploy/ansible/inventory.ini
 deploy/ansible/group_vars/vault.yml

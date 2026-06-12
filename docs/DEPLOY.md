@@ -2,101 +2,139 @@
 
 > Панель спроектирована как **локальный** инструмент (слушает `127.0.0.1`). Веб-терминалы дают
 > **прямой shell-доступ к вашим серверам**, поэтому вынос наружу допустим только за HTTPS и с
-> обязательным паролем панели. Этот гайд описывает безопасную прод-раскатку через Docker + nginx.
+> обязательным паролем панели. Этот гайд описывает безопасную прод-раскатку через Docker Compose
+> за общим **Traefik**, автоматизированную **Ansible**.
+
+Весь комплект раскатки — в каталоге [deploy/](../deploy/). Два пути:
+**автоматический (Ansible)** — рекомендуется, и **ручной (Docker Compose)** — если без Ansible.
 
 ## Архитектура раскатки
 
 ```
-Интернет → nginx (TLS, контейнер web) ──┬── /            → статика фронта (Vite build)
-                                         ├── /api         → server:3001 (Fastify)
-                                         └── /ws          → server:3001 (WebSocket)
-                                              (только внутренняя docker-сеть)
+            :443 (HTTPS)
+   браузер ──────────────►  Traefik  ──Host(домен)──►  web (nginx)
+                            (общий edge,                 │  ├─ статика SPA (Vite build)
+                             авто Let's Encrypt,         │  └─ proxy /api,/ws ─► server:3001
+                             http→https)                 внутренняя сеть       (Fastify API + WS + SSH-движок)
 ```
 
-Наружу торчит **только** nginx (80/443). Backend (`server:3001`) доступен лишь во внутренней
-docker-сети — порт не публикуется.
+- Наружу торчит **только** Traefik (80/443) и через него — сервис `web`.
+- **`server`** (`:3001`) порт **не публикует** — доступен лишь во внутренней docker-сети.
+- Фронт ходит на тот же origin (`/api`, `/ws` через `location.host`), поэтому отдельный адрес
+  бэкенда нигде не зашит — nginx внутри `web` проксирует их на `server`.
 
 ## Файлы
 
 | Файл | Назначение |
 |------|-----------|
-| [docker-compose.prod.yml](../docker-compose.prod.yml) | server + web (nginx); пробрасывает master-key, password-hash, session-secret |
-| [apps/server/Dockerfile](../apps/server/Dockerfile) | образ backend (Fastify через tsx) |
-| [apps/web/Dockerfile](../apps/web/Dockerfile) | сборка Vite-бандла → раздача через nginx |
-| [deploy/nginx/dankodeploy.conf](../deploy/nginx/dankodeploy.conf) | конфиг сайта: статика + прокси `/api` и `/ws` + TLS |
-| [.env.prod.example](../.env.prod.example) | шаблон env для прода |
+| [deploy/docker-compose.yml](../deploy/docker-compose.yml) | стек панели: `server` + `web` за Traefik (метки домена), volumes |
+| [deploy/docker/server.Dockerfile](../deploy/docker/server.Dockerfile) | образ backend (native-модули, ssh-keygen/tmux, запуск через tsx) |
+| [deploy/docker/entrypoint.sh](../deploy/docker/entrypoint.sh) | `db:push` (применение схемы) + старт сервера |
+| [deploy/docker/web.Dockerfile](../deploy/docker/web.Dockerfile) + [nginx.conf](../deploy/docker/nginx.conf) | сборка Vite → nginx со статикой и прокси `/api`,`/ws` |
+| [deploy/.env.example](../deploy/.env.example) | домен + секреты прода |
+| [deploy/ansible/](../deploy/ansible/) | автоматизация (Docker, Traefik, секреты, запуск) |
 
-## Предпосылки на VPS
+## Ключевые особенности (почему именно так)
 
-- Docker Engine + Compose plugin.
-- Доменное имя, A-запись которого указывает на VPS (нужно для TLS).
-- Открытые порты 80 и 443.
+- **Запуск сервера через `tsx src/main.ts`, а не `node dist`.** Внутренние пакеты монорепо
+  (`@dankodeploy/shared|core|db`) резолвятся на исходники (`main → src/index.ts`), поэтому
+  скомпилированный `dist` их не подхватит. `tsx` исполняет TS и резолвит workspace напрямую.
+- **Схему БД применяет entrypoint (`pnpm db:push`).** Миграций в проекте нет — схема катится
+  напрямую из `schema.ts`. Это же снимает класс ошибок «no such column …» после обновлений.
+- **`DATABASE_URL` абсолютный** (`/app/data/dankodeploy.sqlite`) — чтобы сервер (cwd `apps/server`)
+  и drizzle-kit (cwd `packages/db`) смотрели на один файл.
+- **Native-модули** (`better-sqlite3`, `ssh2`) компилируются в образе под платформу контейнера;
+  в рантайме нужны системные `ssh-keygen` (KeyManager) и `tmux` (AI-агенты) — они в образе.
 
-## Шаги
+---
 
-### 1. Код и зависимости
+## Путь 1 — автоматический (Ansible) ✅
+
+Ansible сам ставит Docker, поднимает Traefik (если его нет) и сеть `web`, генерит секреты,
+тянет код и запускает стек. Деплой **независим от состояния VPS**.
+
+### Предпосылки
+
+- На вашей машине: `ansible` + коллекция `ansible-galaxy collection install community.docker`.
+- VPS на Ubuntu/Debian, SSH с sudo, открытые 80/443.
+- Домен с A-записью на VPS, код в git-репозитории.
+
+### Запуск
 
 ```bash
-git clone <repo> dankodeploy && cd dankodeploy
+cd deploy/ansible
+
+cp inventory.example.ini inventory.ini && $EDITOR inventory.ini    # адрес VPS, SSH-пользователь
+$EDITOR group_vars/dankodeploy.yml                                  # домен, repo, acme_email
+
+cp group_vars/vault.example.yml group_vars/vault.yml
+$EDITOR group_vars/vault.yml                                        # пароль панели
+ansible-vault encrypt group_vars/vault.yml
+
+ansible-playbook site.yml --ask-vault-pass
 ```
 
-Для генерации секретов нужен либо локальный Node + pnpm, либо разовый контейнер.
+После прогона панель — на `https://<домен>`. Команды обслуживания и нюансы (свой Traefik vs
+существующий, staging-сертификаты, смена пароля) — в [deploy/ansible/README.md](../deploy/ansible/README.md).
 
-### 2. Секреты и .env
+---
+
+## Путь 2 — вручную (Docker Compose)
+
+На VPS с Docker и уже запущенным Traefik (сеть `web`):
 
 ```bash
-cp .env.prod.example .env
+git clone <repo> /opt/dankodeploy && cd /opt/dankodeploy
+docker network create web 2>/dev/null || true     # если сети ещё нет
+
+cp deploy/.env.example deploy/.env
+```
+
+Заполните `deploy/.env`:
+
+```bash
+# домен (A-запись → IP сервера)
+DANKODEPLOY_DOMAIN=panel.example.com
 
 # мастер-ключ шифрования (base64, 32 байта)
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
-# пароль панели + секрет cookie (выведет DANKODEPLOY_AUTH_PASSWORD_HASH и SESSION_SECRET)
-corepack enable && pnpm install && pnpm gen-password
+# секрет cookie сессии (hex)
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Впишите в `.env`: `DANKODEPLOY_MASTER_KEY`, `DANKODEPLOY_AUTH_PASSWORD_HASH`,
-`DANKODEPLOY_SESSION_SECRET`, `WEB_ORIGIN=https://ВАШ-ДОМЕН`.
-
-> Без Node на VPS секреты можно сгенерировать локально и перенести — мастер-ключ нужен один и тот же
-> на всё время жизни данных (иначе сохранённые SSH-доступы не расшифруются).
-
-### 3. Домен в nginx-конфиге
-
-В [deploy/nginx/dankodeploy.conf](../deploy/nginx/dankodeploy.conf) замените все `ВАШ-ДОМЕН`
-на реальный домен.
-
-### 4. TLS-сертификат (Let's Encrypt)
-
-Сертификаты монтируются в nginx из `./deploy/letsencrypt`. Разовый выпуск через certbot
-(webroot-челлендж обслуживает `./deploy/certbot-www`):
+Хэш пароля панели — через сам проект (локальный pnpm **или** разовый контейнер):
 
 ```bash
-mkdir -p deploy/letsencrypt deploy/certbot-www
-
-docker run --rm \
-  -v "$PWD/deploy/letsencrypt:/etc/letsencrypt" \
-  -v "$PWD/deploy/certbot-www:/var/www/certbot" \
-  -p 80:80 \
-  certbot/certbot certonly --standalone -d ВАШ-ДОМЕН --agree-tos -m you@example.com -n
+# вариант с контейнером (без локального Node):
+docker compose -f deploy/docker-compose.yml build server
+docker compose -f deploy/docker-compose.yml run --rm --no-deps \
+  --entrypoint pnpm server --filter @dankodeploy/server gen-password 'ВАШ_ПАРОЛЬ'
+# из вывода взять строку DANKODEPLOY_AUTH_PASSWORD_HASH=... в deploy/.env
 ```
 
-Обновление — `certbot renew` тем же образом (по cron); после обновления `docker compose -f
-docker-compose.prod.yml exec web nginx -s reload`.
-
-### 5. Запуск
+Запуск:
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-Откройте `https://ВАШ-ДОМЕН`, войдите по паролю, добавьте сервер на вкладке **Серверы** →
+Откройте `https://<домен>`, войдите по паролю, добавьте сервер на вкладке **Серверы** →
 **Test connection**, затем заводите проекты и деплои.
+
+> Без Traefik на сервере его можно поднять заготовкой из Ansible-роли
+> ([traefik-compose.yml.j2](../deploy/ansible/roles/dankodeploy/templates/traefik-compose.yml.j2))
+> или любым своим edge на 80/443 — главное, чтобы он был в сети `web` и понимал метки `traefik.*`.
+
+---
 
 ## Что бэкапить и беречь
 
 - **`DANKODEPLOY_MASTER_KEY`** — потеря = невозможность расшифровать все сохранённые SSH-доступы.
-- **`./data`** (SQLite-база панели) — серверы, проекты, деплои, история.
-- **`./backups`** — скачанные артефакты бэкапов проектов.
+- **volume `dankodeploy_data`** (SQLite-база) — серверы, проекты, деплои, история.
+- **volume `dankodeploy_backups`** — скачанные артефакты бэкапов проектов.
+- **volume `dankodeploy_ssh`** — known_hosts/ключи исходящих SSH самой панели.
+- При Ansible-раскатке — каталог `secrets/` на сервере (master-key, session-secret).
 
 Для переноса между машинами есть штатный экспорт/импорт конфигурации (вкладка «Бэкап» в UI):
 секреты в архиве перешифрованы под пароль, а не под master-key.
@@ -105,7 +143,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 - [ ] Задан `DANKODEPLOY_AUTH_PASSWORD_HASH` (панель без пароля = открытый shell к вашим серверам).
 - [ ] Задан постоянный `DANKODEPLOY_SESSION_SECRET` (иначе сессии слетают при рестарте).
-- [ ] HTTPS работает, HTTP редиректит на HTTPS.
-- [ ] Порт `3001` **не** опубликован наружу (в compose у `server` нет `ports`).
-- [ ] `.env`, `data/`, `backups/`, `deploy/letsencrypt/` не попадают в git.
+- [ ] HTTPS работает, HTTP редиректит на HTTPS (Traefik делает это сам).
+- [ ] Порт `3001` **не** опубликован наружу (у `server` в compose нет `ports`).
+- [ ] `.env`, vault, `secrets/`, volumes не попадают в git.
 - [ ] (Опционально) firewall/`ufw` пропускает только 80/443 и ваш SSH.

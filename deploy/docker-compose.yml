@@ -1,0 +1,59 @@
+# DankoDeploy: панель за общим Traefik.
+#  - web:    nginx со статикой фронта + прокси /api,/ws на server. ЕДИНСТВЕННЫЙ публичный сервис.
+#  - server: API + WS + SSH-движок. Наружу НЕ публикуется (только во внутренней сети).
+#
+# Сеть "web" — external (общая с Traefik, создаётся отдельно: docker network create web).
+# Сеть "internal" — приватная связь web↔server.
+#
+# Секреты и домен берутся из .env рядом с этим файлом (его готовит Ansible).
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/docker/server.Dockerfile
+    image: dankodeploy-server:latest
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0                 # внутри контейнера слушаем все интерфейсы (наружу не торчит)
+      PORT: 3001
+      DATABASE_URL: /app/data/dankodeploy.sqlite   # абсолютный — server и drizzle на один файл
+      BACKUP_DIR: /app/backups
+      WEB_ORIGIN: https://${DANKODEPLOY_DOMAIN}
+      DANKODEPLOY_MASTER_KEY: ${DANKODEPLOY_MASTER_KEY}
+      DANKODEPLOY_AUTH_PASSWORD_HASH: ${DANKODEPLOY_AUTH_PASSWORD_HASH}
+      DANKODEPLOY_SESSION_SECRET: ${DANKODEPLOY_SESSION_SECRET}
+    volumes:
+      - dankodeploy_data:/app/data        # SQLite-база
+      - dankodeploy_backups:/app/backups  # локальные бэкапы
+      - dankodeploy_ssh:/root/.ssh        # known_hosts/ключи исходящих SSH самой панели
+    networks:
+      - internal
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/docker/web.Dockerfile
+    image: dankodeploy-web:latest
+    restart: unless-stopped
+    depends_on:
+      - server
+    networks:
+      - web        # для Traefik
+      - internal   # чтобы nginx достучался до server
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web"
+      - "traefik.http.routers.dankodeploy.rule=Host(`${DANKODEPLOY_DOMAIN}`)"
+      - "traefik.http.routers.dankodeploy.entrypoints=websecure"
+      - "traefik.http.routers.dankodeploy.tls.certresolver=le"
+      - "traefik.http.services.dankodeploy.loadbalancer.server.port=80"
+
+volumes:
+  dankodeploy_data:
+  dankodeploy_backups:
+  dankodeploy_ssh:
+
+networks:
+  web:
+    external: true
+  internal:
