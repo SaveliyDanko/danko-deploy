@@ -19,11 +19,11 @@ export function toServerPublic(row: ServerRow): ServerPublic {
   return {
     id: row.id,
     name: row.name,
-    connectionType: row.connectionType as "ssh" | "local",
+    connectionType: row.connectionType,
     host: row.host,
     port: row.port,
     username: row.username,
-    authMethod: row.authMethod as "key" | "password" | "stored-key" | null,
+    authMethod: row.authMethod,
     keyId: row.keyId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

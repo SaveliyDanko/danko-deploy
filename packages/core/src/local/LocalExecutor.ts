@@ -182,8 +182,8 @@ export class LocalExecutor {
 
     const channel = {
       on: (event: string, handler: (...args: unknown[]) => void): void => {
-        if (event === "data") dataHandlers.push(handler as (buf: Buffer) => void);
-        else if (event === "close") closeHandlers.push(handler as (code?: number) => void);
+        if (event === "data") dataHandlers.push(handler);
+        else if (event === "close") closeHandlers.push(handler);
       },
       write: (data: string): boolean => proc.stdin?.write(data) ?? false,
       setWindow: (_rows: number, _cols: number): void => {
