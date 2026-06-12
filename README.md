@@ -31,7 +31,7 @@
 | Секреты | AES-256-GCM (`node:crypto`), мастер-ключ из env |
 | Аутентификация | scrypt-хэш пароля + подписанная httpOnly cookie |
 | Планировщик | `node-cron` |
-| Frontend | React + Vite + Tailwind + TanStack Query + Recharts + xterm.js |
+| Frontend | React + Vite + Tailwind + TanStack Query + xterm.js |
 | Общие типы | Zod (`packages/shared`) |
 
 ## Структура

@@ -45,7 +45,7 @@
 **Генерация ключей**: системный `ssh-keygen` (вызывается через `child_process`).
 
 **Frontend** (`apps/web`): React 18 + **Vite** + TypeScript, **Tailwind CSS**, **TanStack Query**
-(серверный стейт/кэш/поллинг), **React Router**, **Recharts** (зарезервировано под графики).
+(серверный стейт/кэш/поллинг), **React Router**.
 
 **Общее**: **Zod** — единый источник истины для типов и валидации (`packages/shared`).
 
