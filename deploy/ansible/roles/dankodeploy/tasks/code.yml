@@ -1,6 +1,16 @@
 ---
 # Доставка кода DankoDeploy на сервер (git clone/pull).
 
+# Каталог создаёт root и сразу отдаёт владельцу — иначе git clone от dankodeploy
+# не сможет создать /opt/dankodeploy (родитель /opt принадлежит root).
+- name: Создать каталог проекта с владельцем dankodeploy
+  ansible.builtin.file:
+    path: "{{ dankodeploy_dir }}"
+    state: directory
+    owner: "{{ dankodeploy_user }}"
+    group: "{{ dankodeploy_user }}"
+    mode: "0755"
+
 - name: Клонировать/обновить репозиторий DankoDeploy
   ansible.builtin.git:
     repo: "{{ dankodeploy_repo }}"
@@ -10,11 +20,3 @@
     force: false
   become_user: "{{ dankodeploy_user }}"
   notify: rebuild dankodeploy
-
-- name: Владелец каталога проекта
-  ansible.builtin.file:
-    path: "{{ dankodeploy_dir }}"
-    state: directory
-    owner: "{{ dankodeploy_user }}"
-    group: "{{ dankodeploy_user }}"
-    recurse: false

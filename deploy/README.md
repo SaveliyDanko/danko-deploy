@@ -34,7 +34,6 @@
 
 ```bash
 cd deploy/ansible
-ansible-galaxy collection install community.docker
 cp inventory.example.ini inventory.ini && $EDITOR inventory.ini            # адрес VPS
 $EDITOR group_vars/dankodeploy.yml                                          # домен, repo, email
 cp group_vars/vault.example.yml group_vars/vault.yml && $EDITOR group_vars/vault.yml

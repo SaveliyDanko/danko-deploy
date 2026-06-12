@@ -3,16 +3,26 @@
 # независимым от состояния сервера: если Traefik уже крутится — не трогаем; если
 # нет — поднимаем свой. Сеть web — общая для Traefik и всех сайтов/панели.
 
+# Создаём сеть обычной docker-командой (не community.docker — она требует
+# python-библиотеку docker на хосте, которой может не быть). Идемпотентно.
 - name: Создать общую docker-сеть web
-  community.docker.docker_network:
-    name: web
-    state: present
+  ansible.builtin.command:
+    cmd: docker network create web
   become_user: "{{ dankodeploy_user }}"
+  register: dankodeploy_net
+  changed_when: "'web' in dankodeploy_net.stdout"
+  failed_when:
+    - dankodeploy_net.rc != 0
+    - "'already exists' not in dankodeploy_net.stderr"
 
-# Определяем, есть ли уже запущенный Traefik (любой контейнер с image traefik).
+# Определяем, есть ли уже запущенный Traefik (любой контейнер с образом traefik:*).
+# Фильтр по образу через grep, т.к. ancestor=traefik не матчит теги (traefik:v3 и т.п.).
 - name: Проверить, запущен ли уже Traefik
   ansible.builtin.shell:
-    cmd: "docker ps --filter ancestor=traefik --format '{% raw %}{{.Names}}{% endraw %}' | head -n1"
+    cmd: >-
+      docker ps --format '{% raw %}{{.Names}} {{.Image}}{% endraw %}'
+      | grep -iE '(^|[[:space:]/])traefik(:|[[:space:]]|$)'
+      | awk '{print $1}' | head -n1
   register: dankodeploy_existing_traefik
   changed_when: false
   become_user: "{{ dankodeploy_user }}"

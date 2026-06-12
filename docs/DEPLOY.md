@@ -55,7 +55,7 @@ Ansible сам ставит Docker, поднимает Traefik (если его 
 
 ### Предпосылки
 
-- На вашей машине: `ansible` + коллекция `ansible-galaxy collection install community.docker`.
+- На вашей машине: `ansible` (роль работает через docker-команды, доп. коллекции не нужны).
 - VPS на Ubuntu/Debian, SSH с sudo, открытые 80/443.
 - Домен с A-записью на VPS, код в git-репозитории.
 

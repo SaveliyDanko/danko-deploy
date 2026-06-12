@@ -18,6 +18,8 @@ COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
 RUN pnpm install --frozen-lockfile --filter @dankodeploy/web...
 
+# tsconfig.base.json из корня — apps/web и packages/shared наследуют его (extends).
+COPY tsconfig.base.json ./tsconfig.base.json
 COPY packages/shared ./packages/shared
 COPY apps/web ./apps/web
 RUN pnpm --filter @dankodeploy/web build

@@ -24,7 +24,6 @@ Ansible сам ставит Docker, поднимает общий Traefik (HTTPS
 - На вашей машине: `ansible` (`pip install ansible`).
 - VPS на Ubuntu/Debian, доступ по SSH с sudo.
 - Домен с A-записью на VPS (нужно для Let's Encrypt), открытые порты 80/443.
-- На вашей машине коллекция: `ansible-galaxy collection install community.docker`.
 
 ## Минимальная настройка
 

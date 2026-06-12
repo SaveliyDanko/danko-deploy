@@ -47,6 +47,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/server/node_modules ./apps/server/node_modules
 # Исходники (сервер исполняется через tsx прямо из src).
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+# tsconfig.base.json — пакеты наследуют его (extends); нужен tsx/drizzle-kit.
+COPY tsconfig.base.json ./tsconfig.base.json
 COPY apps/server ./apps/server
 COPY packages/shared ./packages/shared
 COPY packages/core ./packages/core
