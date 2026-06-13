@@ -83,13 +83,15 @@ shared           ← web
 
 | Модуль | Файл | Назначение |
 |--------|------|-----------|
-| `SshExecutor` | `ssh/SshExecutor.ts` | Пул SSH-соединений (одно на сервер, переиспользуется). `exec`, `execStream`, `openShell` (pty для веб-терминала), `upload`, `download`, `testConnection`, `disconnect`. **Self-heal:** при ошибке открытия канала (`Channel open failure`) протухшее соединение сбрасывается из пула и пересоздаётся (`withConnection`). `classifySshError` — понятная категория ошибки (unreachable/handshake/auth/channel) для UI |
+| `SshExecutor` | `ssh/SshExecutor.ts` | Пул SSH-соединений (одно на сервер, переиспользуется). `exec`, `execStream`, `openShell` (pty для веб-терминала), `upload`, `download`, `testConnection`, `disconnect`. **Self-heal:** при ошибке открытия канала (`Channel open failure`) протухшее соединение сбрасывается из пула и пересоздаётся (`withConnection`). `classifySshError` — понятная категория ошибки (unreachable/handshake/auth/channel) для UI. `setLocal()` подключает `LocalExecutor`: для серверов с `connectionType: "local"` команды/pty идут не по SSH, а локально |
+| `LocalExecutor` | `local/LocalExecutor.ts` | Локальное выполнение команд на хосте панели (`child_process`: `execSync`/`spawn`); из Docker-контейнера — через `nsenter -t 1 -m -u -i -n -p`. PTY терминала — через системный `script -qfc`. Таймаут команд 60 с. Реализует тот же интерфейс, что нужен `SshExecutor` для локального режима |
 | `KeyManager` | `ssh/KeyManager.ts` | Генерация пары (`ssh-keygen`), анализ импортированного ключа (публичный + fingerprint), развёртывание публичного ключа в `authorized_keys` (идемпотентно) |
 | `AgentInstaller` | `agents/AgentInstaller.ts` | Установка/удаление AI-CLI (Claude Code/Codex) и tmux по SSH (идемпотентно), создание/убийство tmux-сессии. `AGENT_SPECS` — расширяемые спецификации агентов |
 | `DeployRunner` | `deploy/DeployRunner.ts` | Выполняет шаги деплоя по SSH, стримит логи через колбэки. `resolveDeploySteps` даёт дефолтные шаги по типу сервиса |
 | `UndeployRunner` | `deploy/UndeployRunner.ts` | Выполняет шаги undeploy по SSH (зеркало DeployRunner). `resolveUndeploySteps` даёт дефолтные шаги остановки по типу сервиса |
 | `ProvisionRunner` | `deploy/ProvisionRunner.ts` | Первичная раскатка: `git clone` репо в `workdir` (public по https; private — приватный ключ во временный файл + `GIT_SSH_COMMAND`, удаляется в `finally`). Падает, если `workdir` не пуст. Стримит логи как DeployRunner |
-| `MetricsCollector` | `metrics/MetricsCollector.ts` | Собирает метрики ОДНОЙ ssh-командой (`/proc/loadavg`, `free`, `df`, `docker ps`, `docker stats --no-stream`, `ss -tulnp`), разделитель `===DANKO_SEP===`. Нагрузка по контейнерам (CPU%/RAM) мёрджится в `docker ps` по имени; `ss` даёт слушающие порты хоста (порт/протокол/адрес/процесс, публичный vs локальный) |
+| `MetricsCollector` | `metrics/MetricsCollector.ts` | Собирает метрики ОДНОЙ ssh-командой (`/proc/loadavg`, `free`, `df`, `docker ps`, `docker stats --no-stream`, `ss -tulnp`), разделитель `===DANKO_SEP===`. Нагрузка по контейнерам (CPU%/RAM) мёрджится в `docker ps` по имени; `ss` даёт слушающие порты хоста (порт/протокол/адрес/процесс, публичный vs локальный). Экспортирует чистые `parseDisks`/`parseCpuPercent` (покрыты юнит-тестами) |
+| `StorageCollector` | `metrics/StorageCollector.ts` | Детальный разбор диска ОДНОЙ ssh-командой ПО КНОПКЕ (тяжелее обычных метрик: `du` по корню), разделитель `===DANKO_STORAGE_SEP===`: `df` (все ФС), `docker system df` (images/containers/volumes/build-cache в байтах, `parseDockerDf`), `du -x -d1 /` (топ-каталоги). Питает `GET /api/servers/:id/storage` → `StorageBreakdown` |
 | `BackupRunner` | `backup/BackupRunner.ts` | Выполняет команду бэкапа ОДНОГО артефакта (плейсхолдер `{{OUT}}` = путь к файлу), возвращает путь + размер. Сервис вызывает по каждому артефакту |
 | `RestoreRunner` | `backup/RestoreRunner.ts` | Заливает файл артефакта на сервер (`upload`) и выполняет его `restoreCommand` (плейсхолдер `{{IN}}` = путь к файлу); временный файл удаляется после |
 | `collectProjectRuntime` | `summary/ProjectStatus.ts` | Определяет статус сервиса (running/stopped/unknown) и git-ревизию по SSH |
@@ -233,6 +235,7 @@ POST   /api/servers/:id/install-docker → { runId } (live-лог в WS deploy:<
 POST   /api/servers/:id/install-node   → { runId } (live-лог в WS deploy:<runId>)
 POST   /api/servers/:id/harden-ssh     → { runId } (hardening SSH: лимиты/keepalive/fail2ban/опц. запрет пароля)
 GET    /api/servers/:id/metrics      → MetricsSnapshot (разовый снимок)
+GET    /api/servers/:id/storage      → StorageBreakdown (детальный разбор диска по кнопке: df/docker/du)
 GET    /api/metrics/last             → MetricsSnapshot[] (кэш для мгновенного показа)
 # SSH-ключи
 GET    /api/keys
@@ -325,19 +328,21 @@ Vite-приложение. В dev-режиме `vite.config.ts` **проксир
   rollout-лог, env, рантайм-статус), `ServersPage` / `ServerDetailPage` (обслуживание VPS:
   проверка SSH, установка Docker/Node, hardening), `KeysPage` (VPS-ключи), `GitKeysPage`
   (git deploy-ключи), `BackupPage` (история бэкапов + экспорт/импорт конфигурации панели),
-  `AiAgentsPage` (список + развернуть агента), `VpnPage` (раскатка Outline/Shadowsocks: выбор сервера →
-  readiness-чек с чек-листом + `MeterBar` метрики → кнопка «Развернуть VPN» открывает `DeployDrawer`),
-  `VpnClientPage` (VPN-клиент sing-box: сервер → subscription-ссылка → «Загрузить локации» → выбор локации →
-  readiness → «Включить VPN»; список с проверкой внешнего IP и ручным обновлением подписки),
-  `DocsPage` (`/docs/:section` — встроенная
+  `AiAgentsPage` (список + развернуть агента), VPN на `/vpn` — **таб-хаб** `VpnHubPage.tsx`
+  (экспортирует `VpnPage`; активная вкладка в `?tab=`): вкладка «VPN-сервер» — секция `VpnServerSection`
+  (из `VpnPage.tsx`: раскатка Outline/Shadowsocks — выбор сервера → readiness-чек с чек-листом +
+  `MeterBar` метрики → «Развернуть VPN» открывает `DeployDrawer`); вкладка «VPN-клиент» — секция
+  `VpnClientSection` (из `VpnClientPage.tsx`: sing-box — сервер → subscription-ссылка → «Загрузить
+  локации» → выбор локации → readiness → «Включить VPN»; список с проверкой внешнего IP и ручным
+  обновлением подписки). `DocsPage` (`/docs/:section` — встроенная
   документация в UI), `LoginPage` (вход по паролю); `AiAgentTerminalPage` и `ServerTerminalPage`
   (полноэкранные веб-терминалы, вне общего layout).
 - `components/` — `DeployDrawer`/`AiDeployDrawer` (live-логи), `Terminal` (xterm.js + кнопки-хоткеи
   для мобильных), `RequireAuth` (гейт аутентификации), `ui.tsx` (StatusBadge, MeterBar, Modal, Spinner).
 - Роутинг (`main.tsx`): `/login` публичный; `/ai/:id/terminal` и `/servers/:id/terminal` —
   full-screen вне layout; остальное (`projects`, `deployments`, `servers`, `keys`, `git-keys`,
-  `ai`, `backup`, `docs`) под `RequireAuth` + `App`-layout. Серверный стейт —
-  TanStack Query (инвалидация после мутаций).
+  `ai`, `vpn`, `backup`, `docs`) под `RequireAuth` + `App`-layout. Legacy-путь `/vpn-client`
+  редиректит на `/vpn?tab=client`. Серверный стейт — TanStack Query (инвалидация после мутаций).
 
 ## 8. Модель данных (`packages/db/src/schema.ts`)
 

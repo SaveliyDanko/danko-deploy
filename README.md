@@ -4,6 +4,7 @@
 бэкапы и сводка по проектам — всё через SSH, **без агентов** на серверах.
 
 > **Документация:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — полный контекст и устройство ·
+> [docs/CODEMAP.md](docs/CODEMAP.md) — карта файлов (где что лежит) ·
 > [docs/SERVICE-SPEC.md](docs/SERVICE-SPEC.md) — как подготовить свои сервисы к деплою ·
 > [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) — инструкции для AI-агентов.
 

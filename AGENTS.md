@@ -2,7 +2,8 @@
 
 Инструкции для AI-агентов (Claude Code, Cursor, Copilot и др.), работающих в этом репозитории.
 Совместимо со стандартом [agents.md](https://agents.md). Для Claude Code см. также `CLAUDE.md`,
-для полного контекста — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+для полного контекста — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), для навигации по файлам
+(«где именно лежит X») — [docs/CODEMAP.md](docs/CODEMAP.md).
 
 ## Проект в одном абзаце
 
@@ -23,7 +24,9 @@ TanStack Query. Общие типы — Zod в `packages/shared`. Запуска
 | `packages/core` | `@dankodeploy/core` | Доменная логика: `SshExecutor` (SSH) + `LocalExecutor` (локальные команды через `child_process`, из Docker — `nsenter`), `KeyManager`, `DeployRunner`/`UndeployRunner`/`ProvisionRunner`, `MetricsCollector`, `BackupRunner`/`RestoreRunner`, `AgentInstaller`, `DockerInstaller`/`NodeInstaller`/`SshHardeningInstaller`, crypto |
 
 **Полная карта сервисов, эндпоинтов, схемы БД и WS-протокола — в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-(§5–§8). Читай её перед нетривиальными изменениями.** Ниже — только то, что нужно держать в голове постоянно.
+(§5–§8). Читай её перед нетривиальными изменениями.** Плоский индекс всех файлов
+(`путь → назначение`, + навигация по сценариям) — [docs/CODEMAP.md](docs/CODEMAP.md): начни с него,
+чтобы быстро найти нужный файл. Ниже — только то, что нужно держать в голове постоянно.
 
 ## Настройка окружения
 
@@ -111,8 +114,13 @@ Prettier (`.prettierrc.json`, printWidth 100) — форматирование; 
 Покрываем прежде всего **чистые функции** (без SSH/БД/сети) — там тесты дёшевы и ловят реальные регрессы:
 
 - `packages/core/src/crypto.test.ts` — шифрование/хэш/derive-key (round-trip, GCM-аутентификация).
+- `packages/core/src/deploy/resolveDeploySteps.test.ts` — дефолтные шаги деплоя по типу сервиса.
+- `packages/core/src/metrics/parseCpuPercent.test.ts` / `parseDisks.test.ts` / `StorageCollector.test.ts` — разбор метрик и диска (loadavg/df/docker df/du).
 - `packages/core/src/server/vless/parseVlessUri.test.ts` — разбор subscription/`vless://` (REALITY-поля, метки, приватность публичного списка).
 - `packages/core/src/server/vless/buildSingBoxConfig.test.ts` — генерация sing-box конфига (новый формат DNS, **route-правило `source_port:[SSH]→direct`**, tcp/grpc).
+- `apps/server/src/plugins/errorHandler.test.ts` — формат ответа об ошибке, сокрытие 5xx.
+- `apps/server/src/services/BackgroundRunner.test.ts` — контракт фоновой SSH-операции (runId/publish/done).
+- `apps/server/src/services/backupFilename.test.ts` — имя файла бэкапа.
 - `apps/web/src/lib/format.test.ts` — форматтеры UI.
 
 **Правила:** новый тест — рядом с исходником (`foo.ts` → `foo.test.ts`); импорты с расширением `.js`;
