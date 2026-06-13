@@ -82,6 +82,16 @@ export default tseslint.config(
     },
   },
 
+  // Служебные JS-скрипты вне tsconfig (напр. apps/server/build.mjs — esbuild-сборка).
+  // Линтим БЕЗ type-information, иначе type-aware правила падают «нет проекта для файла».
+  {
+    files: ["**/*.{js,cjs,mjs}"],
+    extends: [tseslint.configs.disableTypeChecked],
+    languageOptions: {
+      parserOptions: { projectService: false, project: false },
+    },
+  },
+
   // Тесты исключены из tsconfig (exclude в пакетах) → type-aware парсер их «не видит».
   // Линтим их БЕЗ type-information + с послаблениями (any/non-null в фикстурах — норма).
   {
