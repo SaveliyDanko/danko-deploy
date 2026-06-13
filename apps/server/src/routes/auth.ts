@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 
 import type { AppContext } from "../context.js";
+import { SESSION_TTL_SECONDS } from "../services/AuthService.js";
 
 const COOKIE_NAME = "dd_session";
 const loginSchema = z.object({ password: z.string().min(1) });
@@ -35,7 +36,7 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
         sameSite: "lax",
         secure: ctx.config.webOrigin.startsWith("https://"),
         path: "/",
-        maxAge: 60 * 60 * 24 * 30, // 30 дней
+        maxAge: SESSION_TTL_SECONDS, // синхронно с TTL токена (см. AuthService)
       });
       return { ok: true };
     },
