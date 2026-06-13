@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { basename, resolve, sep } from "node:path";
 
 import { decryptSecret, deriveKeyFromPassword, encryptSecret } from "@dankodeploy/core";
 import type { SqliteDb } from "@dankodeploy/db";
@@ -15,6 +15,21 @@ import AdmZip from "adm-zip";
 
 /** Маркер для проверки пароля при импорте (шифруется ключом из пароля). */
 const VERIFIER_PLAINTEXT = "dankodeploy-backup";
+
+/**
+ * Приводит путь артефакта из НЕДОВЕРЕННОГО бэкапа к безопасному в пределах BACKUP_DIR:
+ * берём только basename и кладём в `backupDirAbs`. Возвращает null для небезопасных/
+ * пустых имён (".", "..", пусто) — такой артефакт считаем отсутствующим. Без этого
+ * импортированный бэкап мог бы указать `path: "/etc/passwd"` и выгрузить чужой файл.
+ */
+export function confineToBackupDir(backupDirAbs: string, p: string): string | null {
+  const name = basename(p);
+  if (!name || name === "." || name === "..") return null;
+  const dest = resolve(backupDirAbs, name);
+  // Защита от выхода за пределы каталога (basename уже single-segment, это belt-and-suspenders).
+  if (dest !== backupDirAbs && !dest.startsWith(backupDirAbs + sep)) return null;
+  return dest;
+}
 
 /**
  * Имя файла экспорта: дата + время, чтобы различать бэкапы внутри одного дня.
@@ -170,24 +185,12 @@ export class ConfigBackupService {
       backups: 0,
     };
 
-    // Восстанавливаем файлы артефактов из ZIP на диск (в свой BACKUP_DIR) и
-    // переписываем пути в данных на локальные абсолютные.
+    // Пути артефактов из недоверенного файла ВСЕГДА приводим к BACKUP_DIR (анти-traversal),
+    // а вложенные в ZIP файлы распаковываем туда же. Небезопасные/отсутствующие пути
+    // ЗАНУЛЯЮТСЯ (артефакт без файла) — нельзя дать импорту указать на чужой файл вне BACKUP_DIR.
     let restoredFiles = 0;
-    if (zip) {
-      for (const row of backup.data.backups) {
-        rewriteBackupRowPaths(row, (portablePath) => {
-          if (!portablePath) return null;
-          // В данных путь портативный (backups/<имя>) только если файл был вложен.
-          const name = basename(portablePath);
-          const entry = zip.getEntry(`${BACKUPS_DIR_ENTRY}/${name}`);
-          if (!entry) return portablePath; // файла нет в архиве — оставляем как есть
-          const dest = resolve(this.backupDirAbs, name);
-          // writeFileSync через буфер записи: addLocalFile нельзя (вне cwd).
-          zip.extractEntryTo(entry, this.backupDirAbs, /* maintainEntryPath */ false, true);
-          restoredFiles += 1;
-          return dest;
-        });
-      }
+    for (const row of backup.data.backups) {
+      restoredFiles += this.confineRowPaths(row, zip);
     }
 
     const run = this.sqlite.transaction(() => {
@@ -199,9 +202,18 @@ export class ConfigBackupService {
       }
 
       for (const spec of TABLES) {
+        // Белый список колонок берём из РЕАЛЬНОЙ схемы (PRAGMA), а не из файла —
+        // имена столбцов из недоверенного бэкапа иначе утекли бы в SQL (инъекция).
+        const allowed = this.tableColumns(spec.table);
         const rows = backup.data[spec.key] ?? [];
         for (const raw of rows) {
-          const row = this.mapSecrets(raw, spec.secretCols, exportKey, this.masterKey);
+          const mapped = this.mapSecrets(raw, spec.secretCols, exportKey, this.masterKey);
+          const row: Record<string, unknown> = {};
+          for (const [col, val] of Object.entries(mapped)) {
+            if (allowed.has(col)) row[col] = val; // неизвестные колонки отбрасываем
+          }
+          // Без первичного ключа строку не вставляем (нечего конфликтовать/обновлять).
+          if (row[spec.pk] === undefined || row[spec.pk] === null) continue;
           this.upsert(spec.table, spec.pk, row);
           counts[spec.key] += 1;
         }
@@ -250,6 +262,47 @@ export class ConfigBackupService {
       }
     }
     return out;
+  }
+
+  /** Реальные имена колонок таблицы (из схемы БД) — белый список для импорта. */
+  private tableColumns(table: string): Set<string> {
+    // table — из фиксированного массива TABLES (доверенная константа), не из файла.
+    const cols = this.sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    return new Set(cols.map((c) => c.name));
+  }
+
+  /**
+   * Конфайнит пути артефактов строки backups в BACKUP_DIR (анти-traversal) и
+   * распаковывает вложенные в ZIP файлы. Небезопасные/отсутствующие пути → null.
+   * Возвращает число распакованных файлов.
+   */
+  private confineRowPaths(row: Record<string, unknown>, zip: AdmZip | null): number {
+    let restored = 0;
+    const fix = (raw: unknown): string | null => {
+      if (typeof raw !== "string" || !raw) return null;
+      const dest = confineToBackupDir(this.backupDirAbs, raw);
+      if (!dest) return null;
+      const entry = zip?.getEntry(`${BACKUPS_DIR_ENTRY}/${basename(dest)}`);
+      if (entry) {
+        zip!.extractEntryTo(entry, this.backupDirAbs, /* maintainEntryPath */ false, true);
+        restored += 1;
+      }
+      return dest;
+    };
+
+    if (typeof row.path === "string" && row.path) row.path = fix(row.path);
+    if (typeof row.artifacts === "string" && row.artifacts) {
+      try {
+        const arts = JSON.parse(row.artifacts) as { path?: unknown }[];
+        for (const a of arts) {
+          if (a && typeof a.path === "string" && a.path) a.path = fix(a.path);
+        }
+        row.artifacts = JSON.stringify(arts);
+      } catch {
+        /* битый JSON артефактов — пропускаем */
+      }
+    }
+    return restored;
   }
 
   /** INSERT … ON CONFLICT(pk) DO UPDATE по всем колонкам строки (upsert по PK). */
