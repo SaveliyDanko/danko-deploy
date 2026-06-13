@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Entrypoint контейнера сервера DankoDeploy.
-#  1) применяет схему БД (pnpm db:push) — миграций в проекте нет, схема катится напрямую;
-#  2) запускает сервер через tsx (внутренние пакеты резолвятся на исходники).
+#  1) применяет схему БД (pnpm db:push, drizzle-kit) — миграций в проекте нет, схема катится напрямую;
+#  2) запускает сервер собранным бандлом (node apps/server/dist/main.js) — без tsx в рантайме.
 #
-# Все секреты/настройки приходят через окружение (docker environment/.env), поэтому
-# tsx запускается БЕЗ --env-file. DATABASE_URL должен быть АБСОЛЮТНЫМ путём, чтобы
-# сервер (cwd apps/server) и drizzle-kit (cwd packages/db) смотрели на один файл.
+# Все секреты/настройки приходят через окружение (docker environment/.env).
+# DATABASE_URL должен быть АБСОЛЮТНЫМ путём, чтобы сервер (cwd apps/server) и
+# drizzle-kit (cwd packages/db) смотрели на один файл.
 set -euo pipefail
 
 : "${DATABASE_URL:=/app/data/dankodeploy.sqlite}"
@@ -24,4 +24,4 @@ pnpm --filter @dankodeploy/db push
 
 echo "[entrypoint] Запускаю сервер…"
 cd /app/apps/server
-exec pnpm exec tsx src/main.ts
+exec node dist/main.js
