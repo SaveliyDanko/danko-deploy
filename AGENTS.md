@@ -82,13 +82,23 @@ pnpm db:push             # создать/обновить схему БД на�
 ## Безопасность (критично)
 
 - SSH-секреты и приватные ключи **всегда** шифруются (`encryptSecret`, AES-256-GCM) до записи в БД.
+- **Host key — TOFU:** `SshExecutor` передаёт `hostVerifier` (запомнить при первом подключении в
+  `servers.host_key_fp`, сверять дальше, `HostKeyMismatchError` при несовпадении). Новые SSH-подключения
+  не ослабляй до «принимать любой ключ». Сброс — `POST /api/servers/:id/reset-host-key`.
 - Публичные типы (`*Public`) и API-ответы **не содержат** приватных ключей/паролей.
 - **Аутентификация:** пароль панели — scrypt-хэш в env, сессия в подписанной httpOnly cookie.
-  `/api/*` защищён guard'ом (`plugins/authGuard.ts`); `/ws` — проверкой сессии на handshake
-  (`routes/ws.ts`, `close(1008)` без сессии). **Веб-терминал = прямой shell к серверу:**
+  Токен сессии **истекает** (TTL 30 дней, `validateSessionToken` проверяет `issuedAt`) и **отзывается**
+  сменой пароля (ключ HMAC завязан на хэш пароля). Не выдавай токены без TTL-проверки.
+  `/api/*` защищён guard'ом (`plugins/authGuard.ts`); `/ws` — проверкой **Origin** (`isAllowedWsOrigin`,
+  анти-CSWSH) И сессии на handshake (`routes/ws.ts`, `close(1008)` иначе). **Веб-терминал = прямой shell к серверу:**
   любой новый WS-канал с доступом к серверу обязан быть за этой проверкой; auth на `/ws` не ослаблять.
   `POST /api/auth/login` — **rate-limit** (`@fastify/rate-limit`, 5 попыток / 15 мин на IP) против брутфорса.
+- **Fail-closed по биндингу** (`config.ts`): не-петлевой `HOST` + выключенная auth → сервер не стартует
+  (`loadConfig` бросает). Обход — только `DANKODEPLOY_ALLOW_NO_AUTH=true` (панель за доверенным прокси).
 - Не логировать секреты и содержимое терминала. Не коммитить `.env`, `*.sqlite`, `backups/`, `data/`.
+- **Импорт конфигурации — недоверенный ввод** (`ConfigBackupService`): имена колонок при upsert бери
+  из схемы (`PRAGMA`, белый список), не из файла (анти-SQLi); пути артефактов конфайни в `BACKUP_DIR`
+  (`confineToBackupDir`, анти-traversal). Не ослабляй это при правках импорта.
 
 ## Проверка результата
 

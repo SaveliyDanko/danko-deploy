@@ -58,7 +58,7 @@
 |------|-----------|
 | `src/index.ts` | Публичный API пакета (реэкспорт) |
 | `src/crypto.ts` | AES-256-GCM (`encryptSecret`/`decryptSecret`/`loadMasterKey`), scrypt-пароль, `deriveKeyFromPassword` |
-| `src/ssh/SshExecutor.ts` | Пул SSH-соединений: `exec`/`execStream`/`openShell`(pty)/`upload`/`download`; self-heal, `classifySshError`. `setLocal()` маршрутизирует на LocalExecutor для `connectionType:"local"` |
+| `src/ssh/SshExecutor.ts` | Пул SSH-соединений: `exec`/`execStream`/`openShell`(pty)/`upload`/`download`; self-heal, `classifySshError`. `setLocal()` → LocalExecutor для `local`. `setHostKeyStore()` + `hostVerifier` (TOFU host key, `hostKeyFingerprint`, `HostKeyMismatchError`) |
 | `src/local/LocalExecutor.ts` | Локальное выполнение (child_process; из Docker — `nsenter -t 1`); pty через `script`. Таймаут 60с |
 | `src/ssh/KeyManager.ts` | Генерация/анализ ключей (`ssh-keygen`), идемпотентный деплой публичного ключа в `authorized_keys` |
 | `src/agents/AgentInstaller.ts` | Установка/удаление AI-CLI + tmux по SSH; `AGENT_SPECS` (расширять для нового агента) |
@@ -87,7 +87,7 @@
 | Файл | Что делает |
 |------|-----------|
 | `src/main.ts` | Старт: loadConfig → buildContext → buildApp → listen; `reconcileOrphans` (зависшие running→failed), запуск планировщиков/метрик |
-| `src/config.ts` | `AppConfig` из env (валидация при старте). Список env — ARCHITECTURE.md §10 |
+| `src/config.ts` | `AppConfig` из env (валидация при старте) + **fail-closed**: не-петлевой `HOST` без auth → throw. Список env — ARCHITECTURE.md §10 |
 | `src/context.ts` | **DI-контейнер `AppContext`**: создаёт все сервисы + общий `SshExecutor`/`WsHub`. Новый сервис регистрируй здесь. Разрыв цикла ServerService↔SshKeyService через `keyResolver` |
 | `src/app.ts` | Сборка Fastify: плагины (cookie/cors/multipart/rate-limit/websocket), errorHandler, authGuard, регистрация всех роутов |
 
@@ -103,7 +103,7 @@
 | Файл | Эндпоинты |
 |------|-----------|
 | `routes/auth.ts` | `/api/auth/me`/`login`(rate-limit)/`logout` |
-| `routes/servers.ts` | CRUD серверов, `test`, `install-docker`/`install-node`/`harden-ssh`, `metrics`, **`storage`** (детальный разбор диска), `/api/metrics/last` |
+| `routes/servers.ts` | CRUD серверов, `test`, `install-docker`/`install-node`/`harden-ssh`, `reset-host-key` (TOFU-сброс), `metrics`, **`storage`** (детальный разбор диска), `/api/metrics/last` |
 | `routes/keys.ts` | CRUD VPS-ключей, generate/import, `deploy` |
 | `routes/gitKeys.ts` | CRUD git deploy-ключей |
 | `routes/projects.ts` | CRUD проектов-карточек, `backups`/`backups/upload`, `env` (get/put) |
@@ -112,14 +112,14 @@
 | `routes/vpnClient.ts` | VPN-клиент (sing-box): CRUD, `readiness`, `parse`, `sync`, `external-ip` |
 | `routes/configBackup.ts` | `config/export` (ZIP) / `config/import` (multipart) |
 | `routes/aiAgents.ts` | CRUD AI-агентов, `deploy`/`start`/`stop`/`status` |
-| `routes/ws.ts` | `/ws`: auth на handshake (`close(1008)`), парсинг сообщений → `WsHub`/`TerminalBridge` |
+| `routes/ws.ts` | `/ws`: проверка Origin (`isAllowedWsOrigin`, анти-CSWSH) + auth на handshake (`close(1008)`), парсинг сообщений → `WsHub`/`TerminalBridge` |
 
 ### Сервисы (`src/services/`) — описания в ARCHITECTURE.md §6
 
 | Файл | Что делает |
 |------|-----------|
 | `services/BackgroundRunner.ts` | **Паттерн фоновой SSH-операции**: `run(task)` → `{runId}`, лог в `deploy:<runId>`, `deploy:done`. Не дублируй runId/WS вручную |
-| `services/AuthService.ts` | scrypt-verify пароля, выдача/проверка stateless-сессии (HMAC) |
+| `services/AuthService.ts` | scrypt-verify пароля, выдача/проверка сессии (HMAC); токен с TTL (`SESSION_TTL_MS`, 30 дней) + отзыв сменой пароля (ключ завязан на хэш) |
 | `services/ServerService.ts` | CRUD серверов, шифрование секретов, `toTarget(row)` → `SshTarget` |
 | `services/ServerSetupService.ts` | Bootstrap VPS (Docker/Node/hardening) в фоне с live-логом |
 | `services/SshKeyService.ts` | CRUD VPS-ключей, generate/import, `decrypt`, деплой на сервер |
@@ -131,7 +131,7 @@
 | `services/ProvisionService.ts` | `provision` — первичный clone из `config.source` |
 | `services/BackupService.ts` | `run`/`restore`/`saveUploaded`/`history` по артефактам |
 | `services/BackupScheduler.ts` | node-cron бэкапы из `config.backupCron`; `reload()` |
-| `services/ConfigBackupService.ts` | Экспорт/импорт всей конфигурации в ZIP (перешифровка под пароль), upsert по id; экспортирует `backupFilename` (тест `backupFilename.test.ts`) |
+| `services/ConfigBackupService.ts` | Экспорт/импорт всей конфигурации в ZIP (перешифровка под пароль), upsert по id. Импорт недоверенного файла: колонки по whitelist (`PRAGMA`, анти-SQLi), пути в `BACKUP_DIR` (`confineToBackupDir`, анти-traversal). Экспортирует `backupFilename` (тесты `backupFilename.test.ts`) |
 | `services/MetricsBroadcaster.ts` | setInterval(5с) сбор метрик только для подписанных серверов + backoff |
 | `services/MetricsStore.ts` | Кэш последнего снимка метрик по серверу (таблица `metrics_snapshots`) |
 | `services/AiAgentService.ts` | CRUD AI-агентов, `deploy`/`uninstall`/`start`/`stop`/`sessionStatus`; лог в `ai:<id>` |
@@ -189,15 +189,19 @@
 | Тест | Покрывает |
 |------|-----------|
 | `packages/core/src/crypto.test.ts` | Шифрование/хэш/derive-key (round-trip, GCM) |
+| `packages/core/src/ssh/SshExecutor.test.ts` | `hostKeyFingerprint` (формат SHA256) + классификация `HostKeyMismatchError` |
 | `packages/core/src/deploy/resolveDeploySteps.test.ts` | Дефолтные шаги деплоя по kind |
 | `packages/core/src/metrics/parseCpuPercent.test.ts` | Оценка CPU из loadavg/nproc |
 | `packages/core/src/metrics/parseDisks.test.ts` | Разбор `df` |
 | `packages/core/src/metrics/StorageCollector.test.ts` | Разбор `docker system df`/`du` |
 | `packages/core/src/server/vless/parseVlessUri.test.ts` | Разбор subscription/`vless://` |
 | `packages/core/src/server/vless/buildSingBoxConfig.test.ts` | sing-box конфиг + route `source_port:[SSH]→direct` |
+| `apps/server/src/config.test.ts` | `isLoopbackHost` + fail-closed `loadConfig` (бинд наружу без auth) |
+| `apps/server/src/services/AuthService.test.ts` | Сессия: round-trip, подделка, истечение TTL, отзыв сменой пароля |
+| `apps/server/src/routes/ws.test.ts` | `isAllowedWsOrigin` (анти-CSWSH: чужой/отсутствующий Origin) |
 | `apps/server/src/plugins/errorHandler.test.ts` | Формат ответа об ошибке, сокрытие 5xx |
 | `apps/server/src/services/BackgroundRunner.test.ts` | runId/publish/done-контракт фоновой операции |
-| `apps/server/src/services/backupFilename.test.ts` | Имя файла бэкапа |
+| `apps/server/src/services/backupFilename.test.ts` | Имя файла бэкапа + `confineToBackupDir` (анти path-traversal импорта) |
 | `apps/web/src/lib/format.test.ts` | UI-форматтеры |
 
 ---

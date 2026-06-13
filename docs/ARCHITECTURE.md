@@ -83,7 +83,7 @@ shared           ← web
 
 | Модуль | Файл | Назначение |
 |--------|------|-----------|
-| `SshExecutor` | `ssh/SshExecutor.ts` | Пул SSH-соединений (одно на сервер, переиспользуется). `exec`, `execStream`, `openShell` (pty для веб-терминала), `upload`, `download`, `testConnection`, `disconnect`. **Self-heal:** при ошибке открытия канала (`Channel open failure`) протухшее соединение сбрасывается из пула и пересоздаётся (`withConnection`). `classifySshError` — понятная категория ошибки (unreachable/handshake/auth/channel) для UI. `setLocal()` подключает `LocalExecutor`: для серверов с `connectionType: "local"` команды/pty идут не по SSH, а локально |
+| `SshExecutor` | `ssh/SshExecutor.ts` | Пул SSH-соединений (одно на сервер, переиспользуется). `exec`, `execStream`, `openShell` (pty для веб-терминала), `upload`, `download`, `testConnection`, `disconnect`. **Self-heal:** при ошибке открытия канала (`Channel open failure`) протухшее соединение сбрасывается из пула и пересоздаётся (`withConnection`). `classifySshError` — понятная категория ошибки (unreachable/handshake/auth/channel/**hostkey**) для UI. `setLocal()` подключает `LocalExecutor`: для серверов с `connectionType: "local"` команды/pty идут не по SSH, а локально. **Верификация host key (TOFU):** `setHostKeyStore()` подключает хранилище fingerprint'ов; `hostVerifier` при первом подключении запоминает ключ сервера (`hostKeyFingerprint` — формат `SHA256:base64`), при последующих сверяет и при несовпадении бросает `HostKeyMismatchError` (защита от MITM) |
 | `LocalExecutor` | `local/LocalExecutor.ts` | Локальное выполнение команд на хосте панели (`child_process`: `execSync`/`spawn`); из Docker-контейнера — через `nsenter -t 1 -m -u -i -n -p`. PTY терминала — через системный `script -qfc`. Таймаут команд 60 с. Реализует тот же интерфейс, что нужен `SshExecutor` для локального режима |
 | `KeyManager` | `ssh/KeyManager.ts` | Генерация пары (`ssh-keygen`), анализ импортированного ключа (публичный + fingerprint), развёртывание публичного ключа в `authorized_keys` (идемпотентно) |
 | `AgentInstaller` | `agents/AgentInstaller.ts` | Установка/удаление AI-CLI (Claude Code/Codex) и tmux по SSH (идемпотентно), создание/убийство tmux-сессии. `AGENT_SPECS` — расширяемые спецификации агентов |
@@ -122,8 +122,11 @@ shared           ← web
 расшифрованный приватный ключ из `SshKeyService`.
 
 ### Сервисы (`services/`)
-- **`AuthService`** — `verify(password)` (scrypt), `issueSessionToken`/`validateSessionToken`
-  (HMAC-подпись на `sessionSecret`). Сессия stateless.
+- **`AuthService`** — `verify(password)` (scrypt), `issueSessionToken`/`validateSessionToken`.
+  Сессия stateless, но: **истекает** через `SESSION_TTL_MS` (30 дней — `validateSessionToken`
+  проверяет `issuedAt`, не только подпись) и **отзывается** сменой пароля (ключ HMAC завязан на
+  `sessionSecret` + хэш пароля → новый пароль инвалидирует все ранее выданные токены). `maxAge`
+  cookie синхронизирован с TTL (`SESSION_TTL_SECONDS`).
 - **`ServerService`** — CRUD серверов, шифрование секретов, `toTarget(row)` строит `SshTarget`
   (для `stored-key` резолвит ключ через `keyResolver`).
 - **`ServerSetupService`** — фоновые bootstrap-операции для VPS: установка Docker Engine +
@@ -172,6 +175,10 @@ shared           ← web
   файлы артефактов в `BACKUP_DIR` и делает **upsert по id** в FK-safe порядке (ключи → серверы →
   проекты → деплои → env → backups). Режимы: `merge` (upsert) / `replace` (очистка перед вставкой).
   После импорта роут дёргает `scheduler.reload()` (могли измениться `backupCron`).
+  **Импорт-файл считается недоверенным** (бэкапы переносимы/«поделиться»): имена колонок при upsert
+  берутся из реальной схемы (`PRAGMA table_info`, белый список) — не из файла (анти-SQL-инъекция;
+  `confineToBackupDir`); пути артефактов жёстко конфайнятся в `BACKUP_DIR` по `basename` (анти-traversal —
+  иначе импорт мог бы указать `path:"/etc/passwd"` и выгрузить чужой файл).
 - **`VpnService`** — управление VPN-инсталляциями на серверах (Outline/Shadowsocks). `checkReadiness(serverId)`
   — синхронно: `VpnReadinessChecker` + `MetricsCollector` (CPU/RAM/диск) → `VpnReadiness`. `install(serverId)`
   в фоне (`OutlineInstaller`): создаёт `vpn_installations` (status `installing`), стримит лог в WS-канал
@@ -234,6 +241,7 @@ POST   /api/servers/test             body: CreateServerInput (тест до со
 POST   /api/servers/:id/install-docker → { runId } (live-лог в WS deploy:<runId>)
 POST   /api/servers/:id/install-node   → { runId } (live-лог в WS deploy:<runId>)
 POST   /api/servers/:id/harden-ssh     → { runId } (hardening SSH: лимиты/keepalive/fail2ban/опц. запрет пароля)
+POST   /api/servers/:id/reset-host-key  → { ok } (сбросить запомненный host key после пересоздания сервера)
 GET    /api/servers/:id/metrics      → MetricsSnapshot (разовый снимок)
 GET    /api/servers/:id/storage      → StorageBreakdown (детальный разбор диска по кнопке: df/docker/du)
 GET    /api/metrics/last             → MetricsSnapshot[] (кэш для мгновенного показа)
@@ -301,8 +309,9 @@ GET    /api/ai/agents/:id/status     → { status, agent }
 
 ### WebSocket — `/ws`
 Одно соединение, мультиплексирование по каналам через `WsHub` (+ `TerminalBridge` для pty).
-Протокол — единый discriminatedUnion в `packages/shared/src/deploy.ts`. **Auth проверяется
-на handshake.**
+Протокол — единый discriminatedUnion в `packages/shared/src/deploy.ts`. На handshake проверяются
+**(1) `Origin`** (`isAllowedWsOrigin` — должен совпасть с `webOrigin`; анти-CSWSH, т.к. WS не
+подчиняется CORS) и **(2) сессия** (cookie). Несоответствие — `close(1008)`.
 
 - Клиент → сервер: `subscribe:deploy {runId}`, `subscribe:metrics {serverId}`, `unsubscribe:metrics`,
   `subscribe:ai {agentId}`, `subscribe:terminal {agentId}`, `unsubscribe:terminal`,
@@ -350,7 +359,7 @@ Vite-приложение. В dev-режиме `vite.config.ts` **проксир
 |---------|---------------|---------|
 | `ssh_keys` | `public_key`, `fingerprint`, `private_key_enc`, `passphrase_enc` | Приватник шифрован; публичный и fingerprint открыто |
 | `git_keys` | `public_key`, `fingerprint`, `private_key_enc`, `passphrase_enc` | Git deploy-ключи (отдельно от VPS). Приватник шифрован; на сервер кладётся при clone приватного репо |
-| `servers` | `auth_method` (key/password/stored-key), `secret_enc`, `key_id` | `secret_enc` NULL для stored-key; `key_id` → `ssh_keys` (onDelete: set null) |
+| `servers` | `auth_method` (key/password/stored-key), `secret_enc`, `key_id`, `host_key_fp` | `secret_enc` NULL для stored-key; `key_id` → `ssh_keys` (onDelete: set null); `host_key_fp` — запомненный fingerprint host key (TOFU, NULL до первого подключения) |
 | `projects` | `kind`, `config` (JSON ProjectConfig), `stack` | Карточка **БЕЗ сервера**. `config` — JSON-текст; `config.source` (опц.) — источник git-clone; `config.meta` (опц.) — справочная метаинформация (порты/контейнеры/env/чек-лист/ссылки/заметки) |
 | `deployments` | `project_id`, `server_id`, `last_deploy_status`, `last_deploy_at` | **Проект × сервер**. Пара `(project_id, server_id)` уникальна (`deployments_project_server_uq`). Оба FK onDelete: cascade |
 | `deploy_runs` | `deployment_id`, `status`, `log`, `started_at`, `finished_at` | Привязаны к деплою (не проекту). Полный лог раскатки для истории |
@@ -368,12 +377,25 @@ Vite-приложение. В dev-режиме `vite.config.ts` **проксир
 - **SSH-секреты и приватные ключи** шифруются AES-256-GCM. В БД лежит только шифротекст.
   Мастер-ключ — `DANKODEPLOY_MASTER_KEY` (env, base64, 32 байта), **не коммитится**.
   Без него расшифровать доступы нельзя.
+- **Верификация host key (TOFU).** `SshExecutor` передаёт `hostVerifier` в `ssh2`: при первом
+  подключении запоминает fingerprint ключа сервера (`servers.host_key_fp`, формат `SHA256:base64`),
+  при последующих — сверяет и рвёт соединение при несовпадении (`HostKeyMismatchError`, защита от
+  MITM/подмены сервера). При легитимном пересоздании VPS — `POST /api/servers/:id/reset-host-key`
+  (также сбрасывается автоматически при смене `host`/`port`). Без этого `ssh2` принимал бы любой ключ.
 - **Аутентификация панели** — scrypt-хэш пароля в env (`DANKODEPLOY_AUTH_PASSWORD_HASH`,
   генерится `pnpm gen-password`), сессия — подписанная httpOnly cookie. Guard защищает `/api/*`,
   `/ws` проверяется на handshake. Без хэша — выключена (только локальный dev).
+- **Жизненный цикл сессии:** токен **истекает** через 30 дней (TTL, `AuthService` проверяет `issuedAt`)
+  и **отзывается** сменой пароля панели (подпись завязана на хэш пароля — `pnpm gen-password` + рестарт
+  инвалидирует все старые сессии). `logout` чистит cookie текущего браузера.
 - **Веб-терминалы = прямой shell-доступ к серверу.** Поэтому: auth обязательна перед выносом
-  наружу; проверка сессии на WS-handshake (`close(1008)`); за reverse-proxy с TLS, порт `3001`
-  не публиковать напрямую. Панель по умолчанию слушает `127.0.0.1`.
+  наружу; на WS-handshake проверяются сессия И `Origin` (анти-CSWSH: WS не подчиняется CORS,
+  иначе чужой сайт открыл бы `/ws` с cookie жертвы), несоответствие — `close(1008)`; за reverse-proxy
+  с TLS, порт `3001` не публиковать напрямую. Панель по умолчанию слушает `127.0.0.1`.
+- **Fail-closed по биндингу** (`config.ts`): если `HOST` не петлевой (не `127.0.0.0/8`/`::1`/
+  `localhost`), а аутентификация выключена (нет `DANKODEPLOY_AUTH_PASSWORD_HASH`) — сервер
+  **отказывается стартовать** (бросает при `loadConfig`). Это защита от мисконфига «открыли наружу
+  без пароля». Осознанный обход (панель за доверенным прокси с собственной auth) — `DANKODEPLOY_ALLOW_NO_AUTH=true`.
 - `.env`, `*.sqlite`, `backups/`, `data/`, `dankodeploy.config.yaml` — в `.gitignore`.
 - Публичные представления (`*Public` типы) никогда не содержат секретов — API не отдаёт приватные ключи/пароли.
 
@@ -385,6 +407,7 @@ Vite-приложение. В dev-режиме `vite.config.ts` **проксир
 |-----------|-----------|--------|
 | `PORT` | Порт API | `3001` |
 | `HOST` | Адрес прослушивания | `127.0.0.1` |
+| `DANKODEPLOY_ALLOW_NO_AUTH` | Разрешить не-петлевой `HOST` при выключенной auth (обход fail-closed; только за доверенным прокси) | — (выкл.) |
 | `DATABASE_URL` | Путь к SQLite | `./data/dankodeploy.sqlite` |
 | `DANKODEPLOY_MASTER_KEY` | Мастер-ключ AES-256-GCM (base64, 32 байта) | — (обязателен) |
 | `BACKUP_DIR` | Куда складывать бэкапы | `./backups` |
