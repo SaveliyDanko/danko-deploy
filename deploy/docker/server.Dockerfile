@@ -65,7 +65,13 @@ COPY tsconfig.base.json ./tsconfig.base.json
 COPY --from=build /app/apps/server/package.json ./apps/server/package.json
 COPY --from=build /app/apps/server/dist ./apps/server/dist
 # packages/db — для db:push (drizzle-kit читает schema.ts + drizzle.config.ts).
+# packages/core и packages/shared — НЕ нужны рантайму (они уже внутри бандла), но
+# нужны pnpm для целостности workspace: entrypoint зовёт `pnpm --filter db push`, а
+# pnpm 11 валидирует весь workspace и падает (WORKSPACE_PKG_NOT_FOUND), если пакеты,
+# на которые ссылается apps/server (workspace:*), отсутствуют. На RAM не влияет.
 COPY --from=build /app/packages/db ./packages/db
+COPY --from=build /app/packages/core ./packages/core
+COPY --from=build /app/packages/shared ./packages/shared
 COPY deploy/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
