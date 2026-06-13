@@ -5,14 +5,30 @@ import type { AppContext } from "../context.js";
 import { isRequestAuthenticated } from "../plugins/authGuard.js";
 
 /**
+ * Разрешён ли Origin WS-подключения. WebSocket НЕ подчиняется CORS, поэтому
+ * браузер на чужом сайте мог бы открыть /ws с cookie жертвы (CSWSH = доступ к
+ * терминалу). Браузер всегда шлёт Origin — требуем совпадения с webOrigin.
+ * Отсутствующий Origin (не-браузерный клиент: нет ambient-cookie) — пропускаем.
+ */
+export function isAllowedWsOrigin(origin: string | undefined, webOrigin: string): boolean {
+  if (!origin) return true;
+  return origin === webOrigin.replace(/\/$/, "");
+}
+
+/**
  * Единый WS-эндпоинт /ws. Клиент шлёт subscribe:* сообщения, сервер рассылает
  * deploy/metrics/ai/terminal по каналам через WsHub и TerminalBridge.
  *
  * ВАЖНО: WS-терминал = прямой shell-доступ к серверу, поэтому при handshake
- * проверяем сессию (cookie передаётся браузером при upgrade автоматически).
+ * проверяем (1) Origin — анти-CSWSH, и (2) сессию (cookie передаётся браузером
+ * при upgrade автоматически).
  */
 export function registerWsRoute(app: FastifyInstance, ctx: AppContext): void {
   app.get("/ws", { websocket: true }, (socket, req) => {
+    if (!isAllowedWsOrigin(req.headers.origin, ctx.config.webOrigin)) {
+      socket.close(1008, "forbidden origin");
+      return;
+    }
     if (!isRequestAuthenticated(app, ctx, req)) {
       socket.close(1008, "unauthorized");
       return;
