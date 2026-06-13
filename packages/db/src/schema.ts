@@ -63,6 +63,12 @@ export const servers = sqliteTable("servers", {
   secretEnc: text("secret_enc"),
   /** Ссылка на ключ из хранилища (authMethod = stored-key) */
   keyId: text("key_id").references(() => sshKeys.id, { onDelete: "set null" }),
+  /**
+   * Запомненный fingerprint host key сервера (формат "SHA256:base64", как ssh-keygen).
+   * TOFU: записывается при первом успешном подключении, сверяется при последующих —
+   * защита от MITM/подмены сервера. NULL = ключ ещё не запомнен (доверяем первому).
+   */
+  hostKeyFp: text("host_key_fp"),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(current_timestamp)`),

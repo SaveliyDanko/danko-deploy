@@ -66,6 +66,14 @@ export function registerServerRoutes(app: FastifyInstance, ctx: AppContext): voi
     return result;
   });
 
+  // Сброс запомненного host key (TOFU): после легитимного пересоздания сервера
+  // следующее подключение запомнит новый ключ заново.
+  app.post("/api/servers/:id/reset-host-key", (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!ctx.servers.forgetHostKey(id)) return reply.status(404).send({ error: "Сервер не найден" });
+    return { ok: true };
+  });
+
   // Проверка соединения с параметрами из формы (до сохранения)
   app.post("/api/servers/test", async (req, reply) => {
     const parsed = createServerSchema.safeParse(req.body);

@@ -11,7 +11,7 @@ import {
   type ServerPublic,
   type UpdateServerInput,
 } from "@dankodeploy/shared";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 /** Преобразует строку БД в публичный вид (без секретов). */
@@ -25,6 +25,7 @@ export function toServerPublic(row: ServerRow): ServerPublic {
     username: row.username,
     authMethod: row.authMethod,
     keyId: row.keyId,
+    hostKeyFingerprint: row.hostKeyFp,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -47,6 +48,30 @@ export class ServerService {
 
   setKeyResolver(resolver: KeyResolver): void {
     this.keyResolver = resolver;
+  }
+
+  // ─── Host key (TOFU) — реализация HostKeyStore для SshExecutor ───────────
+
+  /** Запомненный fingerprint host key сервера (undefined — ещё не запоминали). */
+  getHostKey(serverId: string): string | undefined {
+    return this.get(serverId)?.hostKeyFp ?? undefined;
+  }
+
+  /** Запоминает fingerprint при первом подключении. Идемпотентно — не перетирает существующий. */
+  recordHostKey(serverId: string, fingerprint: string): void {
+    this.db
+      .update(servers)
+      .set({ hostKeyFp: fingerprint })
+      .where(and(eq(servers.id, serverId), isNull(servers.hostKeyFp)))
+      .run();
+  }
+
+  /** Сбрасывает запомненный host key (после легитимного пересоздания сервера). */
+  forgetHostKey(serverId: string): boolean {
+    if (!this.get(serverId)) return false;
+    this.db.update(servers).set({ hostKeyFp: null }).where(eq(servers.id, serverId)).run();
+    this.ssh.disconnect(serverId);
+    return true;
   }
 
   list(): ServerPublic[] {
@@ -126,6 +151,13 @@ export class ServerService {
     if (input.host !== undefined) patch.host = input.host;
     if (input.port !== undefined) patch.port = input.port;
     if (input.username !== undefined) patch.username = input.username;
+    // Сменился адрес/порт — это уже другой хост, запомненный host key неактуален.
+    if (
+      (input.host !== undefined && input.host !== existing.host) ||
+      (input.port !== undefined && input.port !== existing.port)
+    ) {
+      patch.hostKeyFp = null;
+    }
     if (input.keyId !== undefined) patch.keyId = input.keyId;
     if (input.connectionType !== undefined) patch.connectionType = input.connectionType;
 

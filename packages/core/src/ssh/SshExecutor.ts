@@ -1,9 +1,52 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+
 import { NodeSSH } from "node-ssh";
 import type { ClientChannel } from "ssh2";
 
 import type { ConnectionType, ServerCredentials } from "@dankodeploy/shared";
 
 import type { LocalExecutor } from "../local/LocalExecutor.js";
+
+/**
+ * Fingerprint host key сервера в формате OpenSSH ("SHA256:base64-без-паддинга").
+ * Совпадает с выводом `ssh-keygen -lf` — пользователь может сверить глазами.
+ */
+export function hostKeyFingerprint(key: Buffer): string {
+  return "SHA256:" + createHash("sha256").update(key).digest("base64").replace(/=+$/, "");
+}
+
+/** Сравнение fingerprint'ов в постоянное время (защита от timing-атак). */
+function fingerprintsEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ba.length === bb.length && timingSafeEqual(ba, bb);
+}
+
+/**
+ * Хранилище запомненных host key (TOFU). Реализуется на уровне сервера (БД).
+ * `get` — известный fingerprint сервера (или undefined, если ещё не запоминали);
+ * `set` — запомнить fingerprint при первом подключении (идемпотентно, не перетирает).
+ */
+export interface HostKeyStore {
+  get(serverId: string): string | undefined;
+  set(serverId: string, fingerprint: string): void;
+}
+
+/** Бросается, когда предъявленный host key НЕ совпал с запомненным (возможен MITM). */
+export class HostKeyMismatchError extends Error {
+  constructor(
+    readonly serverId: string,
+    readonly expected: string,
+    readonly actual: string,
+  ) {
+    super(
+      "⚠ Ключ хоста сервера ИЗМЕНИЛСЯ — соединение разорвано (возможна подмена/MITM). " +
+        `Ожидался ${expected}, получен ${actual}. Если вы сами пересоздали сервер — ` +
+        "сбросьте запомненный ключ (кнопка «Сбросить ключ хоста» / POST /api/servers/:id/reset-host-key).",
+    );
+    this.name = "HostKeyMismatchError";
+  }
+}
 
 /** Параметры подключения к одному серверу (секреты уже расшифрованы). */
 export interface SshTarget {
@@ -34,6 +77,7 @@ export type SshErrorKind =
   | "handshake" // соединение рвётся до рукопожатия (часто перегруз/атака/MaxStartups на sshd)
   | "auth" // отказ аутентификации (ключ/пароль не подошли)
   | "channel" // соединение живо, но новый канал/pty открыть нельзя (протухло/MaxSessions)
+  | "hostkey" // host key сервера не совпал с запомненным (возможен MITM)
   | "unknown";
 
 export interface SshErrorInfo {
@@ -50,6 +94,9 @@ export interface SshErrorInfo {
  * вместо сырого `Channel open failure: open failed`.
  */
 export function classifySshError(err: unknown): SshErrorInfo {
+  if (err instanceof HostKeyMismatchError) {
+    return { kind: "hostkey", message: err.message, raw: err.message };
+  }
   const raw = err instanceof Error ? err.message : String(err);
   const m = raw.toLowerCase();
 
@@ -110,10 +157,49 @@ export class SshExecutor {
   private readonly connections = new Map<string, NodeSSH>();
   private readonly connecting = new Map<string, Promise<NodeSSH>>();
   private local: LocalExecutor | undefined;
+  private hostKeys: HostKeyStore | undefined;
 
   /** Устанавливает LocalExecutor для локальных серверов. Вызывается при сборке контекста. */
   setLocal(executor: LocalExecutor): void {
     this.local = executor;
+  }
+
+  /** Подключает хранилище host key (TOFU-верификация). Вызывается при сборке контекста. */
+  setHostKeyStore(store: HostKeyStore): void {
+    this.hostKeys = store;
+  }
+
+  /**
+   * Строит ssh2 hostVerifier с TOFU-логикой: при первом подключении запоминает
+   * fingerprint, при последующих — сверяет. Несовпадение → cb(false) (ssh2 рвёт
+   * рукопожатие), а getMismatch() даёт детали, чтобы бросить HostKeyMismatchError.
+   * getFingerprint() — предъявленный ключ (для показа в UI после теста).
+   */
+  private buildHostVerifier(target: SshTarget): {
+    hostVerifier: (key: Buffer, cb: (valid: boolean) => void) => void;
+    getMismatch: () => HostKeyMismatchError | undefined;
+    getFingerprint: () => string | undefined;
+  } {
+    let mismatch: HostKeyMismatchError | undefined;
+    let seen: string | undefined;
+    const hostVerifier = (key: Buffer, cb: (valid: boolean) => void): void => {
+      const fp = hostKeyFingerprint(key);
+      seen = fp;
+      const known = this.hostKeys?.get(target.id);
+      if (!known) {
+        // TOFU: запоминаем при первом подключении (для probe/неизвестного id — no-op).
+        this.hostKeys?.set(target.id, fp);
+        cb(true);
+        return;
+      }
+      if (fingerprintsEqual(known, fp)) {
+        cb(true);
+        return;
+      }
+      mismatch = new HostKeyMismatchError(target.id, known, fp);
+      cb(false);
+    };
+    return { hostVerifier, getMismatch: () => mismatch, getFingerprint: () => seen };
   }
 
   /** Возвращает (создавая при необходимости) живое соединение к серверу. */
@@ -142,16 +228,25 @@ export class SshExecutor {
   private async connect(target: SshTarget): Promise<NodeSSH> {
     const ssh = new NodeSSH();
     const { credentials } = target;
-    await ssh.connect({
-      host: target.host,
-      port: target.port,
-      username: target.username,
-      ...(credentials.authMethod === "key"
-        ? { privateKey: credentials.privateKey, passphrase: credentials.passphrase }
-        : { password: credentials.password }),
-      readyTimeout: 15_000,
-      keepaliveInterval: 10_000,
-    });
+    const verifier = this.buildHostVerifier(target);
+    try {
+      await ssh.connect({
+        host: target.host,
+        port: target.port,
+        username: target.username,
+        ...(credentials.authMethod === "key"
+          ? { privateKey: credentials.privateKey, passphrase: credentials.passphrase }
+          : { password: credentials.password }),
+        hostVerifier: verifier.hostVerifier,
+        readyTimeout: 15_000,
+        keepaliveInterval: 10_000,
+      });
+    } catch (err) {
+      // Если рукопожатие упало из-за несовпадения host key — бросаем понятную ошибку.
+      const mismatch = verifier.getMismatch();
+      if (mismatch) throw mismatch;
+      throw err;
+    }
     ssh.connection?.on("error", (err) => {
       console.error(`[ssh] соединение к ${target.id} (${target.host}) упало:`, classifySshError(err).message);
       this.disconnect(target.id);
@@ -278,11 +373,18 @@ export class SshExecutor {
   /** Проверяет соединение (SSH или локально). */
   async testConnection(
     target: SshTarget,
-  ): Promise<{ ok: boolean; uname?: string; error?: string; latencyMs: number }> {
+  ): Promise<{
+    ok: boolean;
+    uname?: string;
+    error?: string;
+    latencyMs: number;
+    hostKeyFingerprint?: string;
+  }> {
     if (isLocalTarget(target)) return this.local!.testConnection(target);
 
     const started = Date.now();
     const ssh = new NodeSSH();
+    const verifier = this.buildHostVerifier(target);
     try {
       const { credentials } = target;
       await ssh.connect({
@@ -292,6 +394,7 @@ export class SshExecutor {
         ...(credentials.authMethod === "key"
           ? { privateKey: credentials.privateKey, passphrase: credentials.passphrase }
           : { password: credentials.password }),
+        hostVerifier: verifier.hostVerifier,
         readyTimeout: 15_000,
       });
       const res = await ssh.execCommand("uname -a");
@@ -300,12 +403,15 @@ export class SshExecutor {
         uname: res.stdout.trim() || undefined,
         error: res.code === 0 ? undefined : res.stderr.trim() || "Ненулевой код выхода",
         latencyMs: Date.now() - started,
+        hostKeyFingerprint: verifier.getFingerprint(),
       };
     } catch (err) {
+      const mismatch = verifier.getMismatch();
       return {
         ok: false,
-        error: classifySshError(err).message,
+        error: classifySshError(mismatch ?? err).message,
         latencyMs: Date.now() - started,
+        hostKeyFingerprint: verifier.getFingerprint(),
       };
     } finally {
       ssh.dispose();

@@ -83,6 +83,8 @@ export const serverPublicSchema = z.object({
   username: z.string(),
   authMethod: sshAuthMethodSchema.nullable(),
   keyId: z.string().nullable(),
+  /** Запомненный fingerprint host key (TOFU). null — ещё не подключались. */
+  hostKeyFingerprint: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -97,5 +99,7 @@ export const connectionTestResultSchema = z.object({
   error: z.string().optional(),
   /** Время отклика, мс */
   latencyMs: z.number().optional(),
+  /** Fingerprint host key, предъявленного сервером (для сверки/показа в UI). */
+  hostKeyFingerprint: z.string().optional(),
 });
 export type ConnectionTestResult = z.infer<typeof connectionTestResultSchema>;

@@ -63,6 +63,11 @@ export function buildContext(config: AppConfig): AppContext {
   const auth = new AuthService(config.authPasswordHash, config.sessionSecret);
 
   const servers = new ServerService(db, ssh, config.masterKey);
+  // TOFU-верификация host key: SshExecutor запоминает/сверяет ключ через ServerService.
+  ssh.setHostKeyStore({
+    get: (id) => servers.getHostKey(id),
+    set: (id, fp) => servers.recordHostKey(id, fp),
+  });
   const keys = new SshKeyService(db, ssh, config.masterKey, servers);
   servers.setKeyResolver((keyId) => {
     const row = keys.getRow(keyId);
