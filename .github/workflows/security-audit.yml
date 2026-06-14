@@ -1,0 +1,32 @@
+# Сканирование зависимостей на известные уязвимости (pnpm audit).
+# pnpm audit работает по pnpm-lock.yaml + реестру — установка node_modules не нужна,
+# поэтому нативные модули (better-sqlite3/ssh2) тут не собираются.
+name: security-audit
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # каждый понедельник 06:00 UTC
+  pull_request:
+    paths:
+      - "**/package.json"
+      - "pnpm-lock.yaml"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Полный отчёт (вкл. dev-зависимости) — информационно, не валит сборку.
+      - name: Audit (полный, информационно)
+        run: pnpm audit --audit-level low || true
+
+      # Гейт: уязвимости high/critical в ПРОДАКШЕН-зависимостях (то, что реально едет
+      # в рантайм) — валят job. dev-инструменты (vitest/vite/esbuild/tsx) исключены.
+      - name: Audit (prod high/critical — гейт)
+        run: pnpm audit --prod --audit-level high

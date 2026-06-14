@@ -1,5 +1,6 @@
 import type { DeployStatus, DeployStep, ProjectConfig, ServiceKind } from "@dankodeploy/shared";
 
+import { shellQuote } from "../util/shell.js";
 import type { SshExecutor, SshTarget } from "../ssh/SshExecutor.js";
 import type { DeployHandlers } from "./DeployRunner.js";
 
@@ -15,7 +16,7 @@ export function resolveUndeploySteps(input: UndeployInput): DeployStep[] {
   switch (input.kind) {
     case "docker-compose": {
       const f = input.config.composeFile;
-      const composeBase = f ? `docker compose -f ${f}` : "docker compose";
+      const composeBase = f ? `docker compose -f ${shellQuote(f)}` : "docker compose";
       return [{ name: "Compose down", run: `${composeBase} down --remove-orphans` }];
     }
     case "systemd": {
@@ -24,8 +25,8 @@ export function resolveUndeploySteps(input: UndeployInput): DeployStep[] {
         return [{ name: "Ошибка", run: 'echo "systemdUnit не задан в конфиге проекта" && false' }];
       }
       return [
-        { name: "Stop unit", run: `sudo systemctl stop ${unit}` },
-        { name: "Status", run: `! systemctl is-active ${unit}` },
+        { name: "Stop unit", run: `sudo systemctl stop ${shellQuote(unit)}` },
+        { name: "Status", run: `! systemctl is-active ${shellQuote(unit)}` },
       ];
     }
     case "process":

@@ -54,6 +54,14 @@ function toBackupRecord(row: BackupRow): BackupRecord {
   };
 }
 
+/**
+ * Санитизация компонента имени файла: имя проекта/артефакта приходит от пользователя
+ * и попадает в путь на диске панели. Без этого `../` в имени = запись вне BACKUP_DIR.
+ */
+function safeSegment(s: string): string {
+  return s.replace(/[^a-zA-Z0-9_-]/g, "_") || "x";
+}
+
 type OperationLog = (line: string, stream?: "stdout" | "stderr" | "info") => void;
 
 function noopLog() {
@@ -224,8 +232,8 @@ export class BackupService {
 
     // Имя для скачивания: <проект>-<артефакт>-<дата>.bak (безопасные символы).
     const project = this.projects.get(projectId);
-    const safeProject = (project?.name ?? "backup").replace(/[^a-zA-Z0-9_-]/g, "_");
-    const safeArtifact = artifactName.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const safeProject = safeSegment(project?.name ?? "backup");
+    const safeArtifact = safeSegment(artifactName);
     const stamp = row.startedAt.slice(0, 10);
     return { path: artifact.path, filename: `${safeProject}-${safeArtifact}-${stamp}.bak` };
   }
@@ -315,7 +323,7 @@ export class BackupService {
       const localPath = resolve(
         process.cwd(),
         this.backupDir,
-        `${project.name}-${id}-${spec.name}.bak`,
+        `${safeSegment(project.name)}-${id}-${safeSegment(spec.name)}.bak`,
       );
       try {
         log(
@@ -385,7 +393,7 @@ export class BackupService {
     const localPath = resolve(
       process.cwd(),
       this.backupDir,
-      `${project.name}-${id}-${cleanArtifactName}-uploaded.bak`,
+      `${safeSegment(project.name)}-${id}-${safeSegment(cleanArtifactName)}-uploaded.bak`,
     );
     try {
       await writeFile(localPath, data);

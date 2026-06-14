@@ -1,5 +1,6 @@
 import type { ProjectConfig, ServiceKind, ServiceStatus } from "@dankodeploy/shared";
 
+import { shellQuote } from "../util/shell.js";
 import type { SshExecutor, SshTarget } from "../ssh/SshExecutor.js";
 
 export interface ProjectRuntimeInfo {
@@ -46,7 +47,9 @@ async function dockerStatus(
   target: SshTarget,
   config: ProjectConfig,
 ): Promise<{ status: ServiceStatus; version: string | null }> {
-  const base = config.composeFile ? `docker compose -f ${config.composeFile}` : "docker compose";
+  const base = config.composeFile
+    ? `docker compose -f ${shellQuote(config.composeFile)}`
+    : "docker compose";
   const res = await ssh.exec(target, `${base} ps --format "{{.Name}} {{.State}}"`, config.workdir);
   const lines = res.stdout.trim().split("\n").filter(Boolean);
   if (lines.length === 0) return { status: "stopped", version: null };
@@ -60,7 +63,7 @@ async function systemdStatus(
   config: ProjectConfig,
 ): Promise<{ status: ServiceStatus; version: string | null }> {
   if (!config.systemdUnit) return { status: "unknown", version: null };
-  const res = await ssh.exec(target, `systemctl is-active ${config.systemdUnit} || true`);
+  const res = await ssh.exec(target, `systemctl is-active ${shellQuote(config.systemdUnit)} || true`);
   const active = res.stdout.trim();
   return { status: active === "active" ? "running" : "stopped", version: null };
 }

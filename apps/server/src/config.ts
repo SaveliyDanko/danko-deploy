@@ -26,6 +26,8 @@ export interface AppConfig {
   sessionSecret: string;
   /** Включена ли аутентификация панели (true, если задан authPasswordHash). */
   authEnabled: boolean;
+  /** Максимальный размер загружаемого файла (байты) — лимит multipart против заполнения диска. */
+  maxUploadBytes: number;
 }
 
 export function loadConfig(): AppConfig {
@@ -64,5 +66,8 @@ export function loadConfig(): AppConfig {
     // Если секрет не задан — генерируем разовый (сессии слетят при рестарте, для dev ок).
     sessionSecret: process.env.DANKODEPLOY_SESSION_SECRET || randomBytes(32).toString("hex"),
     authEnabled,
+    // Лимит загрузки (импорт конфигурации/файл бэкапа). Дефолт 1 GiB — вровень с
+    // nginx client_max_body_size в проде; предохранитель от заполнения диска одним запросом.
+    maxUploadBytes: Math.max(1, Number(process.env.DANKODEPLOY_MAX_UPLOAD_MB) || 1024) * 1024 * 1024,
   };
 }

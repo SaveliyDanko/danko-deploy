@@ -1,0 +1,25 @@
+# Автообновление зависимостей (Dependabot). Читает pnpm-lock.yaml, Dockerfile'ы и
+# версии GitHub Actions; раз в неделю открывает PR с апдейтами и security-фиксами.
+version: 2
+updates:
+  # npm / pnpm-воркспейс (корень). dev-зависимости группируем в один PR, чтобы не спамить.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+
+  # Базовые образы серверного/веб-контейнеров (node:22-bookworm-slim, nginx).
+  - package-ecosystem: "docker"
+    directory: "/deploy/docker"
+    schedule:
+      interval: "weekly"
+
+  # Версии самих GitHub Actions в workflow'ах.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

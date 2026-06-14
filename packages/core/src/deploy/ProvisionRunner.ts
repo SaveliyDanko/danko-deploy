@@ -1,5 +1,6 @@
 import type { DeployStatus, ProjectSource } from "@dankodeploy/shared";
 
+import { shellQuote } from "../util/shell.js";
 import type { SshExecutor, SshTarget } from "../ssh/SshExecutor.js";
 import type { DeployHandlers } from "./DeployRunner.js";
 
@@ -8,11 +9,6 @@ export interface ProvisionInput {
   workdir: string;
   /** Расшифрованный приватный ключ (для source.type === "git-private") */
   privateKey?: string;
-}
-
-/** Безопасное экранирование строки для вставки в одинарные кавычки shell. */
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
 /**

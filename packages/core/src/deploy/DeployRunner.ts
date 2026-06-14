@@ -1,5 +1,6 @@
 import type { DeployStatus, DeployStep, ProjectConfig, ServiceKind } from "@dankodeploy/shared";
 
+import { shellQuote } from "../util/shell.js";
 import type { SshExecutor, SshTarget } from "../ssh/SshExecutor.js";
 
 /** Колбэки прогресса деплоя — сервер транслирует их в WS-канал deploy:<runId>. */
@@ -13,11 +14,6 @@ export interface DeployInput {
   config: ProjectConfig;
   /** Расшифрованный Git deploy-ключ для приватного репозитория. */
   privateKey?: string;
-}
-
-/** Безопасное экранирование строки для вставки в одинарные кавычки shell. */
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
 function withGitSshCommand(command: string, keyPath: string): string {
@@ -35,7 +31,7 @@ export function resolveDeploySteps(input: DeployInput): DeployStep[] {
   switch (input.kind) {
     case "docker-compose": {
       const f = input.config.composeFile;
-      const composeBase = f ? `docker compose -f ${f}` : "docker compose";
+      const composeBase = f ? `docker compose -f ${shellQuote(f)}` : "docker compose";
       return [
         { name: "Git pull", run: "git pull --ff-only" },
         { name: "Pull images", run: `${composeBase} pull --ignore-buildable` },
@@ -54,8 +50,8 @@ export function resolveDeploySteps(input: DeployInput): DeployStep[] {
       }
       return [
         { name: "Git pull", run: "git pull --ff-only" },
-        { name: "Restart unit", run: `sudo systemctl restart ${unit}` },
-        { name: "Status", run: `systemctl is-active ${unit}` },
+        { name: "Restart unit", run: `sudo systemctl restart ${shellQuote(unit)}` },
+        { name: "Status", run: `systemctl is-active ${shellQuote(unit)}` },
       ];
     }
     case "process":

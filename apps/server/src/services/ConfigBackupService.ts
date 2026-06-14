@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, resolve, sep } from "node:path";
 
-import { decryptSecret, deriveKeyFromPassword, encryptSecret } from "@dankodeploy/core";
+import { decryptSecret, deriveKeyFromPassword, encryptSecret, SCRYPT_N } from "@dankodeploy/core";
 import type { SqliteDb } from "@dankodeploy/db";
 import {
   configBackupSchema,
@@ -142,7 +142,7 @@ export class ConfigBackupService {
       format: "dankodeploy-backup",
       version: 2,
       createdAt: new Date().toISOString(),
-      kdf: { algo: "scrypt", salt: salt.toString("base64"), keylen: 32 },
+      kdf: { algo: "scrypt", salt: salt.toString("base64"), keylen: 32, n: SCRYPT_N },
       verifier: encryptSecret(VERIFIER_PLAINTEXT, exportKey),
       includesBackupFiles: includeFiles && includedFiles > 0,
       data,
@@ -162,7 +162,8 @@ export class ConfigBackupService {
     const { backup, zip } = this.parseFile(fileBuffer);
 
     const salt = Buffer.from(backup.kdf.salt, "base64");
-    const exportKey = deriveKeyFromPassword(password, salt);
+    // Старые бэкапы (без kdf.n) выводились с легаси-стоимостью 2^14.
+    const exportKey = deriveKeyFromPassword(password, salt, backup.kdf.n ?? 16384);
 
     // Проверка пароля: verifier должен расшифроваться в маркер. Иначе — стоп.
     try {

@@ -59,23 +59,51 @@ export function decryptSecret(payload: string, masterKey: Buffer): string {
 // ---------------------------------------------------------------------------
 
 const SCRYPT_KEYLEN = 64;
+/** Параметр стоимости scrypt. N=2^15 — текущий минимум OWASP (раньше был дефолт 2^14). */
+export const SCRYPT_N = 32768;
+const SCRYPT_R = 8;
+const SCRYPT_P = 1;
+/** Дефолт scrypt в Node (2^14) — для разбора легаси-хэшей без сохранённого N. */
+const LEGACY_SCRYPT_N = 16384;
+/** При N=2^15,r=8 нужно ~32 МБ — дефолтного maxmem не хватает, поднимаем с запасом. */
+const SCRYPT_MAXMEM = 96 * 1024 * 1024;
 
-/** Хэширует пароль scrypt'ом со случайной солью. Результат: "salt:hash" (hex). */
-export function hashPassword(plain: string): string {
-  const salt = randomBytes(16);
-  const hash = scryptSync(plain, salt, SCRYPT_KEYLEN);
-  return `${salt.toString("hex")}:${hash.toString("hex")}`;
+function scryptOpts(n: number) {
+  return { N: n, r: SCRYPT_R, p: SCRYPT_P, maxmem: SCRYPT_MAXMEM };
 }
 
 /**
- * Проверяет пароль против хранимого "salt:hash". Сравнение timing-safe.
- * Возвращает false при любом нарушении формата (а не бросает) — удобно для guard.
+ * Хэширует пароль scrypt'ом со случайной солью. Результат: "scrypt$<N>$<salt>$<hash>"
+ * (hex) — N хранится в строке, чтобы verify знал стоимость и можно было её повышать.
+ */
+export function hashPassword(plain: string): string {
+  const salt = randomBytes(16);
+  const hash = scryptSync(plain, salt, SCRYPT_KEYLEN, scryptOpts(SCRYPT_N));
+  return `scrypt$${SCRYPT_N}$${salt.toString("hex")}$${hash.toString("hex")}`;
+}
+
+/**
+ * Проверяет пароль против хранимого хэша. Понимает новый формат "scrypt$N$salt$hash"
+ * и легаси "salt:hash" (N=2^14). Сравнение timing-safe. Возвращает false при любом
+ * нарушении формата (а не бросает) — удобно для guard.
  */
 export function verifyPassword(plain: string, stored: string): boolean {
-  const [saltHex, hashHex] = stored.split(":");
-  if (!saltHex || !hashHex) return false;
+  let n = LEGACY_SCRYPT_N;
+  let saltHex: string | undefined;
+  let hashHex: string | undefined;
+  if (stored.startsWith("scrypt$")) {
+    const parts = stored.split("$");
+    if (parts.length !== 4) return false;
+    n = Number(parts[1]);
+    saltHex = parts[2];
+    hashHex = parts[3];
+  } else {
+    [saltHex, hashHex] = stored.split(":");
+  }
+  if (!saltHex || !hashHex || !Number.isInteger(n) || n < 2) return false;
   const expected = Buffer.from(hashHex, "hex");
-  const actual = scryptSync(plain, Buffer.from(saltHex, "hex"), SCRYPT_KEYLEN);
+  if (expected.length === 0) return false;
+  const actual = scryptSync(plain, Buffer.from(saltHex, "hex"), expected.length, scryptOpts(n));
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
@@ -83,7 +111,9 @@ export function verifyPassword(plain: string, stored: string): boolean {
  * Выводит 32-байтный AES-ключ из пользовательского пароля (scrypt + соль).
  * Используется для экспорта/импорта конфигурации: секреты перешифровываются под
  * этот ключ, чтобы бэкап-файл можно было перенести на другую машину/master-key.
+ * Параметр `n` хранится в метаданных бэкапа (kdf.n) — старые бэкапы (без n) читаются
+ * с легаси-значением 2^14, новые — с актуальным SCRYPT_N.
  */
-export function deriveKeyFromPassword(password: string, salt: Buffer): Buffer {
-  return scryptSync(password, salt, 32);
+export function deriveKeyFromPassword(password: string, salt: Buffer, n: number = SCRYPT_N): Buffer {
+  return scryptSync(password, salt, 32, scryptOpts(n));
 }

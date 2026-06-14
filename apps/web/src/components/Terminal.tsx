@@ -66,10 +66,19 @@ export function Terminal(props: TerminalProps) {
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       fontSize: 13,
       theme: { background: "#0b0f17", foreground: "#e2e8f0" },
+      // Вывод приходит от управляемого (возможно скомпрометированного) сервера —
+      // ограничиваем буфер прокрутки, чтобы поток данных не съел память вкладки.
+      scrollback: 5000,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
+    // Ссылки из вывода сервера недоверенные: открываем в новой вкладке с
+    // noopener,noreferrer (без доступа к window.opener и без утечки Referer).
+    term.loadAddon(
+      new WebLinksAddon((_event, uri) => {
+        window.open(uri, "_blank", "noopener,noreferrer");
+      }),
+    );
     term.open(containerRef.current);
     fit.fit();
     termRef.current = term;

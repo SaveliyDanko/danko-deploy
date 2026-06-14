@@ -82,6 +82,8 @@ pnpm db:push             # создать/обновить схему БД на�
 ## Безопасность (критично)
 
 - SSH-секреты и приватные ключи **всегда** шифруются (`encryptSecret`, AES-256-GCM) до записи в БД.
+- **Пользовательские значения в shell-командах** (`composeFile`, `systemdUnit`, `workdir`, пути) оборачивай
+  в `shellQuote` (`@dankodeploy/core`, `util/shell.ts`). Пользовательский ввод в путях ФС панели — санитизируй.
 - **Host key — TOFU:** `SshExecutor` передаёт `hostVerifier` (запомнить при первом подключении в
   `servers.host_key_fp`, сверять дальше, `HostKeyMismatchError` при несовпадении). Новые SSH-подключения
   не ослабляй до «принимать любой ключ». Сброс — `POST /api/servers/:id/reset-host-key`.
@@ -102,13 +104,15 @@ pnpm db:push             # создать/обновить схему БД на�
 
 ## Проверка результата
 
-CI нет; проверка локальная. Перед завершением задачи:
+Функциональные проверки локальные (typecheck/lint/test); из CI настроен только
+`security-audit` (`pnpm audit`) + Dependabot. Перед завершением задачи:
 
 1. `pnpm typecheck` должен проходить чисто (для UI-правок — ещё `pnpm build` фронта).
 2. `pnpm lint` должен проходить **без ошибок** (warnings допустимы). Конфиг — `eslint.config.js` (см. ниже).
 3. `pnpm test` — **Vitest unit-тесты** (см. ниже). Менял чистую функцию (парсер/crypto/config-builder/форматтер) — **добавь/обнови тест**.
 4. Для backend-изменений: поднять сервер с тестовой БД и проверить эндпоинты `curl`'ом.
    После — удалить тестовые данные через `DELETE`-эндпоинты.
+5. Менял зависимости — `pnpm run audit` (гейт по prod high/critical; `audit:all` — полный отчёт).
 
 ### Линтинг (ESLint + Prettier)
 Flat-config `eslint.config.js` (ESLint 9, **type-aware** typescript-eslint). Уровни прагматичные:

@@ -27,8 +27,9 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   // credentials: true — чтобы браузер слал cookie сессии при кросс-origin запросах (dev).
   await app.register(cors, { origin: ctx.config.webOrigin, credentials: true });
   await app.register(cookie, { secret: ctx.config.sessionSecret });
-  // Загрузка файлов бэкапа. Лимит 2 ГБ — бэкапы БД могут быть крупными.
-  await app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024 * 1024 } });
+  // Загрузка файлов бэкапа. Лимит настраивается (DANKODEPLOY_MAX_UPLOAD_MB, дефолт 1 GiB) —
+  // предохранитель от заполнения диска одним большим запросом.
+  await app.register(multipart, { limits: { fileSize: ctx.config.maxUploadBytes } });
   await app.register(websocket);
   // Rate-limit включаем глобально, но НЕ применяем по умолчанию (global: false) —
   // лимитируем точечно (см. config.rateLimit на /api/auth/login против брутфорса).

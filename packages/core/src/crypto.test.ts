@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, scryptSync } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
@@ -89,14 +89,24 @@ describe("hashPassword / verifyPassword", () => {
     expect(hashPassword("pw")).not.toBe(hashPassword("pw"));
   });
 
-  it("формат хранения — salt:hash в hex", () => {
+  it("формат хранения — scrypt$N$salt$hash (N сохранён)", () => {
     const stored = hashPassword("pw");
-    expect(stored).toMatch(/^[0-9a-f]+:[0-9a-f]+$/);
+    expect(stored).toMatch(/^scrypt\$\d+\$[0-9a-f]+\$[0-9a-f]+$/);
+    expect(stored.split("$")[1]).toBe("32768"); // N=2^15
+  });
+
+  it("обратная совместимость: легаси-хэш salt:hash (N=2^14) проверяется", () => {
+    const salt = randomBytes(16);
+    // Легаси-хэш = scryptSync с дефолтным N=16384, формат "salt:hash".
+    const legacy = `${salt.toString("hex")}:${scryptSync("old-pw", salt, 64).toString("hex")}`;
+    expect(verifyPassword("old-pw", legacy)).toBe(true);
+    expect(verifyPassword("wrong", legacy)).toBe(false);
   });
 
   it("битый формат хранилища → false, не бросает", () => {
     expect(verifyPassword("pw", "garbage")).toBe(false);
     expect(verifyPassword("pw", "")).toBe(false);
+    expect(verifyPassword("pw", "scrypt$32768$onlythree")).toBe(false);
   });
 });
 

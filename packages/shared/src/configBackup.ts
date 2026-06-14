@@ -43,6 +43,8 @@ export const configBackupSchema = z.object({
     algo: z.literal("scrypt"),
     salt: z.string(),
     keylen: z.literal(32),
+    /** Стоимость scrypt (N). Опционально — старые бэкапы без него читаются как 2^14. */
+    n: z.number().int().positive().optional(),
   }),
   /** Проверочный шифротекст: encryptSecret("dankodeploy-backup", exportKey). */
   verifier: z.string(),

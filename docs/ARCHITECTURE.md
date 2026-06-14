@@ -101,7 +101,8 @@ shared           ← web
 | `SingBoxInstaller` | `server/SingBoxInstaller.ts` | Включение/выключение **VPN-клиента** (sing-box) по SSH: VPS гонит весь исходящий трафик через VPN-провайдера в режиме TUN. `run` ставит sing-box, пишет готовый конфиг (генерит панель) и `systemctl enable --now`. **Критично:** ДО старта поднимает kernel-страховку доступа к серверу (policy routing `table 100` на физ. шлюз): ответы на входящие соединения идут мимо TUN, иначе уходят с IP VPN-провайдера и клиент их не принимает. Три источника заворачиваются в `table 100`: SSH (`iptables` MARK по `--sport SSH` + `ip rule fwmark`), **ответы docker-контейнеров** (`ip rule from <docker-subnet>` для docker0/br-* — ловим по docker-src, т.к. MASQUERADE на внешний IP происходит позже) и процессы хоста (`from <host-src>`). Так доступ к SSH и сайтам за Traefik/docker сохраняется. `remove` снимает службу+страховку. `getExternalIp` — внешний IP для проверки в UI |
 | vless-модуль | `server/vless/{parseVlessUri,buildSingBoxConfig}.ts` | `decodeSubscription` (base64→строки), `parseVlessUri` (`vless://` → узел с REALITY-полями), `parseSubscriptionServers` (список локаций без секретов для UI), `buildSingBoxConfig` (узел → sing-box JSON: TUN inbound + vless outbound + route-правило `source_port:[SSH]→direct`) |
 | `VpnClientReadinessChecker` | `server/VpnClientReadinessChecker.ts` | Готовность сервера к VPN-клиенту ОДНОЙ ssh-командой (root/sudo, curl/wget, **`/dev/net/tun`**, systemd, iptables/ip, virt не openvz/lxc), разделитель `===DANKO_VPNC_SEP===` |
-| crypto | `crypto.ts` | `loadMasterKey`, `encryptSecret`, `decryptSecret` (AES-256-GCM); `hashPassword`/`verifyPassword` (scrypt, аутентификация панели); `deriveKeyFromPassword` (scrypt-ключ из пароля — для шифрования экспортируемого бэкапа конфигурации) |
+| crypto | `crypto.ts` | `loadMasterKey`, `encryptSecret`, `decryptSecret` (AES-256-GCM); `hashPassword`/`verifyPassword` (scrypt, **N=2^15**, формат `scrypt$N$salt$hash` с разбором легаси `salt:hash`); `deriveKeyFromPassword` (scrypt-ключ из пароля для бэкапа конфигурации; стоимость в `kdf.n`) |
+| shellQuote | `util/shell.ts` | Экранирование строки для безопасной вставки в shell (используется в Deploy/Undeploy/Provision-раннерах и ProjectStatus для `composeFile`/`systemdUnit`/путей) |
 
 **Дефолтные шаги деплоя** (если не заданы `config.deploySteps`):
 - `docker-compose`: `git pull` → `docker compose pull --ignore-buildable` → `docker compose up -d --build` → `docker image prune -f`
@@ -398,6 +399,15 @@ Vite-приложение. В dev-режиме `vite.config.ts` **проксир
   без пароля». Осознанный обход (панель за доверенным прокси с собственной auth) — `DANKODEPLOY_ALLOW_NO_AUTH=true`.
 - `.env`, `*.sqlite`, `backups/`, `data/`, `dankodeploy.config.yaml` — в `.gitignore`.
 - Публичные представления (`*Public` типы) никогда не содержат секретов — API не отдаёт приватные ключи/пароли.
+- **Сканирование зависимостей.** `pnpm audit` (`pnpm run audit` — гейт по prod high/critical;
+  `audit:all` — полный отчёт). Автоматизировано: Dependabot (`.github/dependabot.yml`, еженедельные
+  PR-апдейты npm/docker/actions) + workflow `.github/workflows/security-audit.yml` (audit на PR и по
+  расписанию). Версии зафиксированы `pnpm-lock.yaml` (в проде `--frozen-lockfile`).
+- **Лимит загрузки.** Multipart-аплоад (импорт конфигурации / файл бэкапа) ограничен
+  `DANKODEPLOY_MAX_UPLOAD_MB` (дефолт 1 GiB, вровень с nginx) — предохранитель от заполнения диска.
+- **Веб-терминал рендерит вывод управляемых (потенциально скомпрометированных) серверов** в xterm.js.
+  xterm не исполняет управляющие последовательности как команды; дополнительно: ограничен `scrollback`
+  (анти-flood памяти вкладки), ссылки из вывода открываются с `noopener,noreferrer`.
 
 ## 10. Конфигурация (env)
 
@@ -408,6 +418,7 @@ Vite-приложение. В dev-режиме `vite.config.ts` **проксир
 | `PORT` | Порт API | `3001` |
 | `HOST` | Адрес прослушивания | `127.0.0.1` |
 | `DANKODEPLOY_ALLOW_NO_AUTH` | Разрешить не-петлевой `HOST` при выключенной auth (обход fail-closed; только за доверенным прокси) | — (выкл.) |
+| `DANKODEPLOY_MAX_UPLOAD_MB` | Лимит размера загружаемого файла (импорт/бэкап), МБ | `1024` (1 GiB) |
 | `DATABASE_URL` | Путь к SQLite | `./data/dankodeploy.sqlite` |
 | `DANKODEPLOY_MASTER_KEY` | Мастер-ключ AES-256-GCM (base64, 32 байта) | — (обязателен) |
 | `BACKUP_DIR` | Куда складывать бэкапы | `./backups` |
@@ -441,7 +452,8 @@ pnpm gen-password                 # сгенерировать хэш парол
 (разбор подписки), `vless/buildSingBoxConfig` (sing-box конфиг + критическое route-правило исключения SSH),
 `web/lib/format`. Тесты исключены из `tsc`-сборки (`exclude` в tsconfig) — в `dist` не попадают.
 Логика поверх SSH/БД (сервисы) пока проверяется ручным e2e (curl); для юнит-покрытия нужны моки
-`SshExecutor`/`Db`. Тестового CI нет — `pnpm test` гоняется локально.
+`SshExecutor`/`Db`. Тестового CI нет — `pnpm test` гоняется локально (из CI настроен только
+`security-audit`: `pnpm audit` на PR/по расписанию + Dependabot).
 
 ### Линтинг (ESLint + Prettier)
 `eslint.config.js` — flat-config (ESLint 9, **type-aware** typescript-eslint). Опасное → error

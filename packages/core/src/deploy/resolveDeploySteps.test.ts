@@ -17,12 +17,21 @@ describe("resolveDeploySteps", () => {
     );
   });
 
-  it("учитывает composeFile в шагах", () => {
+  it("учитывает composeFile в шагах (значение экранировано для shell)", () => {
     const steps = resolveDeploySteps({
       kind: "docker-compose",
       config: { ...baseConfig, composeFile: "prod.yml" },
     });
-    expect(steps.some((s) => s.run.includes("docker compose -f prod.yml up -d --build"))).toBe(true);
+    expect(steps.some((s) => s.run.includes("docker compose -f 'prod.yml' up -d --build"))).toBe(true);
+  });
+
+  it("composeFile с shell-метасимволами безопасно экранируется", () => {
+    const steps = resolveDeploySteps({
+      kind: "docker-compose",
+      config: { ...baseConfig, composeFile: "a.yml; rm -rf /" },
+    });
+    // Опасный composeFile целиком внутри одинарных кавычек — не интерпретируется shell.
+    expect(steps.some((s) => s.run.includes("-f 'a.yml; rm -rf /'"))).toBe(true);
   });
 
   it("кастомные deploySteps переопределяют дефолты", () => {

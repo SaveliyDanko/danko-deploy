@@ -57,7 +57,8 @@
 | Файл | Что делает |
 |------|-----------|
 | `src/index.ts` | Публичный API пакета (реэкспорт) |
-| `src/crypto.ts` | AES-256-GCM (`encryptSecret`/`decryptSecret`/`loadMasterKey`), scrypt-пароль, `deriveKeyFromPassword` |
+| `src/crypto.ts` | AES-256-GCM (`encryptSecret`/`decryptSecret`/`loadMasterKey`), scrypt-пароль (N=2^15, формат `scrypt$N$salt$hash` + легаси), `deriveKeyFromPassword` |
+| `src/util/shell.ts` | `shellQuote` — экранирование для shell (Deploy/Undeploy/Provision/ProjectStatus: `composeFile`/`systemdUnit`/пути) |
 | `src/ssh/SshExecutor.ts` | Пул SSH-соединений: `exec`/`execStream`/`openShell`(pty)/`upload`/`download`; self-heal, `classifySshError`. `setLocal()` → LocalExecutor для `local`. `setHostKeyStore()` + `hostVerifier` (TOFU host key, `hostKeyFingerprint`, `HostKeyMismatchError`) |
 | `src/local/LocalExecutor.ts` | Локальное выполнение (child_process; из Docker — `nsenter -t 1`); pty через `script`. Таймаут 60с |
 | `src/ssh/KeyManager.ts` | Генерация/анализ ключей (`ssh-keygen`), идемпотентный деплой публичного ключа в `authorized_keys` |
@@ -165,7 +166,7 @@
 | `components/ui.tsx` | `StatusBadge`/`MeterBar`/`Modal`/`Spinner` |
 | `components/DeployDrawer.tsx` | Live-лог деплоя/установки (WS `deploy:<runId>`) |
 | `components/AiDeployDrawer.tsx` | Live-лог установки AI-агента (WS `ai:<id>`) |
-| `components/Terminal.tsx` | xterm.js поверх WS-pty + хоткей-кнопки для мобильных |
+| `components/Terminal.tsx` | xterm.js поверх WS-pty + хоткей-кнопки; вывод сервера недоверенный (ограничен `scrollback`, ссылки — `noopener,noreferrer`) |
 | `components/RequireAuth.tsx` | Гейт аутентификации (спиннер→redirect на /login) |
 | **pages/** | |
 | `pages/DashboardPage.tsx` | Live-метрики серверов |
@@ -188,7 +189,8 @@
 
 | Тест | Покрывает |
 |------|-----------|
-| `packages/core/src/crypto.test.ts` | Шифрование/хэш/derive-key (round-trip, GCM) |
+| `packages/core/src/crypto.test.ts` | Шифрование/хэш/derive-key (round-trip, GCM, легаси-хэш) |
+| `packages/core/src/util/shell.test.ts` | `shellQuote` (метасимволы, одинарная кавычка) |
 | `packages/core/src/ssh/SshExecutor.test.ts` | `hostKeyFingerprint` (формат SHA256) + классификация `HostKeyMismatchError` |
 | `packages/core/src/deploy/resolveDeploySteps.test.ts` | Дефолтные шаги деплоя по kind |
 | `packages/core/src/metrics/parseCpuPercent.test.ts` | Оценка CPU из loadavg/nproc |
@@ -216,5 +218,7 @@
 | `vitest.config.ts` | Один корневой конфиг Vitest |
 | `packages/db/drizzle.config.ts` | Конфиг drizzle-kit (`db:push`/`studio`); подхватывает корневой `.env` |
 | `docker-compose.yml` | Локальный запуск панели в Docker |
+| `.github/dependabot.yml` | Еженедельные апдейты зависимостей (npm/docker/actions) |
+| `.github/workflows/security-audit.yml` | `pnpm audit` на PR/по расписанию (гейт по prod high/critical) |
 | `deploy/` | Раскатка панели на VPS (Docker Compose + Traefik + Ansible) — см. [DEPLOY.md](DEPLOY.md) |
 | `dankodeploy.config.example.yaml` | Примеры `config` проекта по типам сервисов — см. [SERVICE-SPEC.md](SERVICE-SPEC.md) |

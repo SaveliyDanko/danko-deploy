@@ -18,6 +18,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
+    "audit": "pnpm audit --prod --audit-level high",
+    "audit:all": "pnpm audit --audit-level low",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
