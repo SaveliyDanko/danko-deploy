@@ -69,11 +69,11 @@ importers:
         specifier: ^0.5.17
         version: 0.5.17
       better-sqlite3:
-        specifier: ^11.7.0
-        version: 11.10.0
+        specifier: ^12.10.1
+        version: 12.10.1
       drizzle-orm:
         specifier: ^0.38.3
-        version: 0.38.4(@types/better-sqlite3@7.6.13)(@types/react@18.3.30)(better-sqlite3@11.10.0)(react@18.3.1)
+        version: 0.38.4(@types/better-sqlite3@7.6.13)(@types/react@18.3.30)(better-sqlite3@12.10.1)(react@18.3.1)
       fastify:
         specifier: ^5.2.0
         version: 5.8.5
@@ -189,11 +189,11 @@ importers:
   packages/db:
     dependencies:
       better-sqlite3:
-        specifier: ^11.7.0
-        version: 11.10.0
+        specifier: ^12.10.1
+        version: 12.10.1
       drizzle-orm:
         specifier: ^0.38.3
-        version: 0.38.4(@types/better-sqlite3@7.6.13)(@types/react@18.3.30)(better-sqlite3@11.10.0)(react@18.3.1)
+        version: 0.38.4(@types/better-sqlite3@7.6.13)(@types/react@18.3.30)(better-sqlite3@12.10.1)(react@18.3.1)
     devDependencies:
       '@types/better-sqlite3':
         specifier: ^7.6.12
@@ -1709,8 +1709,9 @@ packages:
   bcrypt-pbkdf@1.0.2:
     resolution: {integrity: sha512-qeFIXtP4MSoi6NLqO12WfqARWWuCKi2Rn/9hJLEmtB5yTNr9DqFWkJRCf2qShWzPeAMRnOgCrq0sg/KLv5ES9w==}
 
-  better-sqlite3@11.10.0:
-    resolution: {integrity: sha512-EwhOpyXiOEL/lKzHz9AW1msWFNzGc/z+LzeB3/jnFJpxu+th2yqvzsSWas1v9jgs9+xiXJcD5A8CJxAG2TaghQ==}
+  better-sqlite3@12.10.1:
+    resolution: {integrity: sha512-HfFtzCqnSfwB3+HroF6PSKzyh+7RfNMGPCzHFUZXRlvrPCb4P3cvxKZNN43Sr7IrkofqQZM+gIvffGpA8VvqgA==}
+    engines: {node: 20.x || 22.x || 23.x || 24.x || 25.x || 26.x}
 
   binary-extensions@2.3.0:
     resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
@@ -2705,6 +2706,11 @@ packages:
 
   semver@7.8.1:
     resolution: {integrity: sha512-rkVq3IXh+4FDGch+KwzX3aV9W3kO54GyEgpvBzSyctDA6Xtd7RJQV1xmXbeQp5v7+VzLOfVqiutSE6GICgPFvg==}
+    engines: {node: '>=10'}
+    hasBin: true
+
+  semver@7.8.4:
+    resolution: {integrity: sha512-rUCObTnP32Q08R2uuIrt7r9PlEonuTmtuXYcW6s5kjdlj3xbnwe+21yXptAUYcMAABLkYYTtnmzb3w3EDZfueA==}
     engines: {node: '>=10'}
     hasBin: true
 
@@ -4137,7 +4143,7 @@ snapshots:
     dependencies:
       tweetnacl: 0.14.5
 
-  better-sqlite3@11.10.0:
+  better-sqlite3@12.10.1:
     dependencies:
       bindings: 1.5.0
       prebuild-install: 7.1.3
@@ -4284,11 +4290,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.38.4(@types/better-sqlite3@7.6.13)(@types/react@18.3.30)(better-sqlite3@11.10.0)(react@18.3.1):
+  drizzle-orm@0.38.4(@types/better-sqlite3@7.6.13)(@types/react@18.3.30)(better-sqlite3@12.10.1)(react@18.3.1):
     optionalDependencies:
       '@types/better-sqlite3': 7.6.13
       '@types/react': 18.3.30
-      better-sqlite3: 11.10.0
+      better-sqlite3: 12.10.1
       react: 18.3.1
 
   duplexify@4.1.3:
@@ -4861,7 +4867,7 @@ snapshots:
 
   node-abi@3.92.0:
     dependencies:
-      semver: 7.8.1
+      semver: 7.8.4
 
   node-cron@3.0.3:
     dependencies:
@@ -5155,6 +5161,8 @@ snapshots:
   semver@6.3.1: {}
 
   semver@7.8.1: {}
+
+  semver@7.8.4: {}
 
   set-cookie-parser@2.7.2: {}
 
