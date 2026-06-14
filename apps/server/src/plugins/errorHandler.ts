@@ -1,8 +1,5 @@
 import type { FastifyError, FastifyInstance } from "fastify";
 
-/** В dev можно отдавать детали ошибки клиенту; в prod — только общий текст. */
-const isDev = process.env.NODE_ENV === "development";
-
 /**
  * Глобальный обработчик ошибок и 404. Гарантирует единый формат ответа `{ error }`
  * и — главное — НЕ отдаёт наружу стектрейсы/внутренности при 5xx (утечка структуры
@@ -24,15 +21,16 @@ export function registerErrorHandler(app: FastifyInstance): void {
       return reply.status(status).send({ error: error.message });
     }
 
-    // 5xx — необработанное исключение. Логируем ПОЛНОСТЬЮ на сервере, клиенту — общий текст.
+    // 5xx — необработанное исключение. Полную ошибку (с message/стеком) логируем на
+    // сервере; клиенту — ТОЛЬКО общий текст, без деталей. Не завязываемся на NODE_ENV:
+    // это fail-open (случайный не-prod в проде = утечка внутренностей наружу). Для отладки
+    // в dev смотри серверный лог ниже — там полный `err`.
     req.log.error(
       { err: error, reqId: req.id, method: req.method, url: req.url },
       "Необработанная ошибка запроса",
     );
     return reply.status(status >= 500 ? status : 500).send({
       error: "Внутренняя ошибка сервера",
-      // В dev помогаем отладке; в prod деталей не раскрываем.
-      ...(isDev ? { detail: error.message } : {}),
     });
   });
 
