@@ -21,7 +21,7 @@
     "@fastify/websocket": "^11.0.1",
     "adm-zip": "^0.5.17",
     "better-sqlite3": "^11.7.0",
-    "drizzle-orm": "^0.38.3",
+    "drizzle-orm": "^0.45.2",
     "fastify": "^5.2.0",
     "nanoid": "^5.0.9",
     "node-cron": "^3.0.3",
