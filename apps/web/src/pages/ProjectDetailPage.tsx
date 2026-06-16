@@ -78,9 +78,8 @@ export function ProjectDetailPage() {
       </div>
 
       {/* Сводка карточки (без сервера/статуса — это уровень деплоя) */}
-      <div className="card grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="card grid grid-cols-2 gap-4 md:grid-cols-3">
         <Field label="Способ раскатки">{kindLabels[p.kind]}</Field>
-        <Field label="Стек">{p.stack ?? "—"}</Field>
         <Field label="Рабочая директория">
           <span className="font-mono text-xs">{p.config.workdir}</span>
         </Field>
