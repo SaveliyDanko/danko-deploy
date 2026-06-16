@@ -59,6 +59,74 @@ backupCron: "0 3 * * *"
 - ...
 `;
 
+const DOCKER_COMPOSE_AGENT_SPEC = `Подготовь этот проект к деплою через DankoDeploy как docker-compose сервис (kind: docker-compose).
+
+Контекст:
+- DankoDeploy подключается к серверу по SSH и раскатывает проект из рабочей директории (workdir).
+- Доставка кода — git pull на сервере. Панель НЕ загружает файлы — она тянет уже запушенный в remote код.
+- Дефолтный цикл деплоя (kind=docker-compose) выполняет РОВНО эти шаги в workdir:
+    1. git pull --ff-only
+    2. docker compose [-f <composeFile>] pull --ignore-buildable
+    3. docker compose [-f <composeFile>] up -d --build
+    4. docker image prune -f
+- Статус сервиса панель определяет по "docker compose ps" (поле State): running, если хотя бы один
+  контейнер в состоянии running/up. Healthcheck из compose панель НЕ учитывает.
+- Команды выполняются по SSH БЕЗ TTY (неинтерактивно).
+
+Что нужно сделать с проектом:
+1. Убедись, что в КОРНЕ репозитория есть docker-compose.yml. Если файл называется иначе
+   (docker-compose.prod.yml и т.п.) — это нормально, но тогда его имя нужно указать в config.composeFile.
+2. У всех долгоживущих сервисов проставь restart: unless-stopped (иначе после рестарта VPS/сбоя
+   контейнер не поднимется, и статус будет stopped).
+3. Вынеси секреты и окружение в .env, которого НЕТ в git:
+   - добавь .env в .gitignore, оставь в репозитории .env.example (шаблон без значений);
+   - чтобы переменные попали ВНУТРЬ контейнера, подключи их через env_file: [.env] в нужных сервисах
+     (или явный environment с \${VAR}). Сам по себе .env рядом с compose влияет только на подстановку
+     \${VAR} в сам compose-файл, но не на окружение приложения.
+   - .env на сервер кладёт сама панель (секция «Переменные окружения») в <workdir>/.env (chmod 600).
+4. Проверь, что в истории git НЕТ секретов (паролей, токенов, ключей).
+5. Если основной сервис собирается на сервере (build:), оцени RAM/CPU VPS. На слабом VPS "up -d --build"
+   может упасть по OOM — тогда предложи собирать образ в CI и тянуть готовый из registry (через
+   кастомные deploySteps), а не собирать на сервере.
+6. Если проекту нужны миграции БД или иные доп. шаги — предложи config.deploySteps. ВАЖНО: кастомные
+   deploySteps ПОЛНОСТЬЮ заменяют дефолт, поэтому git pull и compose up нужно прописать в них явно.
+7. Если у проекта есть данные для бэкапа (БД/media) — кратко подскажи backupArtifacts (для подробного
+   разбора есть отдельный промт «Backup / Restore»). В docker compose exec ОБЯЗАТЕЛЕН флаг -T (нет TTY).
+8. Не публикуй порты 80/443 напрямую, если на VPS несколько сайтов за общим Traefik — для этого есть
+   отдельный промт «Traefik». Здесь не трогай reverse-proxy, если он не нужен.
+
+Формат ответа:
+
+## Изменённый docker-compose.yml
+\`\`\`yaml
+<полный итоговый файл>
+\`\`\`
+
+## .env.example
+\`\`\`
+KEY=
+...
+\`\`\`
+
+## Настройки проекта в DankoDeploy
+- kind: docker-compose
+- workdir: /srv/<имя-проекта>
+- composeFile: <если имя нестандартное, иначе пропусти>
+- deploySteps: <если нужны миграции/CI-образы, иначе дефолт>
+
+## Что изменилось
+- какие restart-policy добавлены;
+- как организован .env / env_file;
+- какие доп. шаги деплоя предложены и почему.
+
+## Чек-лист перед деплоем
+- В корне docker-compose.yml (или имя в composeFile).
+- .env в .gitignore, есть .env.example, в истории git нет секретов.
+- У долгоживущих сервисов restart: unless-stopped.
+- На сервере доступны docker / docker compose, SSH-пользователь делает docker info без sudo.
+- workdir — git-репозиторий, SSH-пользователь им владеет.
+`;
+
 const TRAEFIK_AGENT_SPEC = `Переделай docker-compose этого проекта под общий reverse-proxy Traefik для деплоя через DankoDeploy.
 
 Контекст:
@@ -599,6 +667,22 @@ function AgentPromptSection() {
       </p>
 
       <h3 className="pt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Docker Compose (основной путь)
+      </h3>
+      <AgentPromptBlock
+        prompt={DOCKER_COMPOSE_AGENT_SPEC}
+        description={
+          <>
+            Агент приведёт проект к деплою как <code className="rounded bg-ink px-1">docker-compose</code>:
+            проверит <code className="rounded bg-ink px-1">docker-compose.yml</code> в корне, проставит{" "}
+            <code className="rounded bg-ink px-1">restart: unless-stopped</code>, организует{" "}
+            <code className="rounded bg-ink px-1">.env</code>/<code className="rounded bg-ink px-1">env_file</code>{" "}
+            и при необходимости предложит шаги для миграций. Это основной тип проекта в DankoDeploy.
+          </>
+        }
+      />
+
+      <h3 className="pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
         Backup / Restore
       </h3>
       <AgentPromptBlock
