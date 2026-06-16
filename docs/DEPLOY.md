@@ -28,7 +28,7 @@
 | Файл | Назначение |
 |------|-----------|
 | [deploy/docker-compose.yml](../deploy/docker-compose.yml) | стек панели: `server` + `web` за Traefik (метки домена), volumes |
-| [deploy/docker/server.Dockerfile](../deploy/docker/server.Dockerfile) | образ backend (native-модули, ssh-keygen/tmux, запуск через tsx) |
+| [deploy/docker/server.Dockerfile](../deploy/docker/server.Dockerfile) | образ backend (native-модули, ssh-keygen/tmux, запуск собранным бандлом `node dist/main.js`) |
 | [deploy/docker/entrypoint.sh](../deploy/docker/entrypoint.sh) | `db:push` (применение схемы) + старт сервера |
 | [deploy/docker/web.Dockerfile](../deploy/docker/web.Dockerfile) + [nginx.conf](../deploy/docker/nginx.conf) | сборка Vite → nginx со статикой и прокси `/api`,`/ws` |
 | [deploy/.env.example](../deploy/.env.example) | домен + секреты прода |
@@ -36,9 +36,11 @@
 
 ## Ключевые особенности (почему именно так)
 
-- **Запуск сервера через `tsx src/main.ts`, а не `node dist`.** Внутренние пакеты монорепо
-  (`@dankodeploy/shared|core|db`) резолвятся на исходники (`main → src/index.ts`), поэтому
-  скомпилированный `dist` их не подхватит. `tsx` исполняет TS и резолвит workspace напрямую.
+- **Запуск сервера собранным бандлом (`node dist/main.js`), а не через `tsx`.** Весь наш
+  TypeScript (`apps/server` + `@dankodeploy/shared|core|db`, которые резолвятся на исходники
+  `main → src/index.ts`) esbuild складывает в один `dist/main.js`; npm-зависимости остаются
+  external. Так в проде не живёт резидентный транспилятор tsx (экономия ~100+ МБ RAM).
+  Хэш пароля считает второй бандл-эндпоинт — `dist/genPassword.js` (`node`, без tsx).
 - **Схему БД применяет entrypoint (`pnpm db:push`).** Миграций в проекте нет — схема катится
   напрямую из `schema.ts`. Это же снимает класс ошибок «no such column …» после обновлений.
 - **`DATABASE_URL` абсолютный** (`/app/data/dankodeploy.sqlite`) — чтобы сервер (cwd `apps/server`)
@@ -106,11 +108,14 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 Хэш пароля панели — через сам проект (локальный pnpm **или** разовый контейнер):
 
 ```bash
-# вариант с контейнером (без локального Node):
+# вариант с контейнером (без локального Node). Хэш считает бандл dist/genPassword.js
+# тем же scrypt, что и панель (в прод-образе нет tsx/исходников — только dist):
 docker compose -f deploy/docker-compose.yml build server
 docker compose -f deploy/docker-compose.yml run --rm --no-deps \
-  --entrypoint pnpm server --filter @dankodeploy/server gen-password 'ВАШ_ПАРОЛЬ'
+  --entrypoint node server apps/server/dist/genPassword.js 'ВАШ_ПАРОЛЬ'
 # из вывода взять строку DANKODEPLOY_AUTH_PASSWORD_HASH=... в deploy/.env
+# ВАЖНО: хэш в формате scrypt$N$salt$hash — при вставке в .env удвойте каждый '$'
+# (scrypt$$N$$salt$$hash), иначе docker compose воспримет $ как подстановку и испортит хэш.
 ```
 
 Запуск:
