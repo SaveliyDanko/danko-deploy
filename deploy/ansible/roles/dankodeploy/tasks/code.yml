@@ -11,6 +11,23 @@
     group: "{{ dankodeploy_user }}"
     mode: "0755"
 
+# Под become git проверяет владельца репозитория строже (отдельный HOME/окружение)
+# и падает с "detected dubious ownership", даже когда каталог принадлежит dankodeploy.
+# Явно помечаем каталог безопасным для пользователя деплоя — идемпотентно.
+- name: Пометить каталог проекта как safe.directory для git
+  ansible.builtin.command:
+    cmd: git config --global --get-all safe.directory
+  become_user: "{{ dankodeploy_user }}"
+  register: _git_safe_dirs
+  changed_when: false
+  failed_when: false
+
+- name: Добавить safe.directory для каталога проекта
+  ansible.builtin.command:
+    cmd: git config --global --add safe.directory {{ dankodeploy_dir }}
+  become_user: "{{ dankodeploy_user }}"
+  when: dankodeploy_dir not in _git_safe_dirs.stdout_lines
+
 - name: Клонировать/обновить репозиторий DankoDeploy
   ansible.builtin.git:
     repo: "{{ dankodeploy_repo }}"
