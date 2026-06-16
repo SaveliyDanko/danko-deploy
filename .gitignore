@@ -27,6 +27,7 @@ backups/
 deploy/ansible/inventory.ini
 deploy/ansible/group_vars/vault.yml
 deploy/ansible/secrets/
+deploy/ansible/.vault-pass
 
 # logs
 *.log
@@ -37,3 +38,6 @@ logs/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Claude Code: командные скиллы коммитим, локальные настройки/разрешения — нет
+.claude/settings.local.json
