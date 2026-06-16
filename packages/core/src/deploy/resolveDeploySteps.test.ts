@@ -42,4 +42,28 @@ describe("resolveDeploySteps", () => {
     });
     expect(steps).toEqual(custom);
   });
+
+  it("script: git pull + запуск deploy.sh по умолчанию", () => {
+    const steps = resolveDeploySteps({ kind: "script", config: baseConfig });
+    const runs = steps.map((s) => s.run);
+    expect(runs).toContain("git pull --ff-only");
+    expect(runs).toContain("bash ./'deploy.sh'");
+  });
+
+  it("script: учитывает кастомный deployScript", () => {
+    const steps = resolveDeploySteps({
+      kind: "script",
+      config: { ...baseConfig, deployScript: "scripts/release.sh" },
+    });
+    expect(steps.some((s) => s.run === "bash ./'scripts/release.sh'")).toBe(true);
+  });
+
+  it("script: deployScript с shell-метасимволами безопасно экранируется", () => {
+    const steps = resolveDeploySteps({
+      kind: "script",
+      config: { ...baseConfig, deployScript: "x.sh; rm -rf /" },
+    });
+    // Опасный путь целиком внутри одинарных кавычек — shell его не интерпретирует.
+    expect(steps.some((s) => s.run === "bash ./'x.sh; rm -rf /'")).toBe(true);
+  });
 });

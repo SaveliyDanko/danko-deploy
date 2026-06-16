@@ -4,9 +4,10 @@ import { z } from "zod";
  * Тип упаковки сервиса определяет, какие команды выполняет DeployRunner/MetricsCollector.
  * - "docker-compose": git pull + docker compose up -d --build
  * - "systemd": загрузка артефакта + systemctl restart <unit>
+ * - "script": git pull + выполнение скрипта раскатки из репозитория (deployScript)
  * - "process": произвольные команды деплоя из конфига
  */
-export const serviceKindSchema = z.enum(["docker-compose", "systemd", "process"]);
+export const serviceKindSchema = z.enum(["docker-compose", "systemd", "script", "process"]);
 export type ServiceKind = z.infer<typeof serviceKindSchema>;
 
 /** Один шаг деплоя (команда, выполняемая по SSH в рабочей директории) */
@@ -121,6 +122,16 @@ export const projectConfigSchema = z.object({
   systemdUnit: z.string().optional(),
   /** Имя docker-compose проекта/файла, если нестандартное */
   composeFile: z.string().optional(),
+  /**
+   * Путь к скрипту раскатки относительно workdir (для kind === "script").
+   * Если пусто — дефолт "deploy.sh". Запускается как `bash ./<deployScript>` после git pull.
+   */
+  deployScript: z.string().optional(),
+  /**
+   * Путь к скрипту снятия проекта относительно workdir (для kind === "script").
+   * Если пусто — undeploy недоступен (как у kind === "process" без undeploySteps).
+   */
+  undeployScript: z.string().optional(),
   /** Кастомные шаги деплоя (если заданы — используются вместо дефолтных для kind) */
   deploySteps: z.array(deployStepSchema).optional(),
   /** Кастомные шаги остановки/снятия проекта (если заданы — используются вместо дефолтных) */

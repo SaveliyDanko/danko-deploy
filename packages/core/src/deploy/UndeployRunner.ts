@@ -29,6 +29,18 @@ export function resolveUndeploySteps(input: UndeployInput): DeployStep[] {
         { name: "Status", run: `! systemctl is-active ${shellQuote(unit)}` },
       ];
     }
+    case "script": {
+      const script = input.config.undeployScript;
+      if (!script) {
+        return [
+          {
+            name: "Ошибка",
+            run: 'echo "Для kind=script задайте config.undeployScript или config.undeploySteps" && false',
+          },
+        ];
+      }
+      return [{ name: "Run script", run: `bash ./${shellQuote(script)}` }];
+    }
     case "process":
     default:
       return [

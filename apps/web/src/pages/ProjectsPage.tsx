@@ -328,6 +328,7 @@ export function ProjectFormModal({
             >
               <option value="docker-compose">Docker Compose</option>
               <option value="systemd">systemd</option>
+              <option value="script">Скрипт</option>
               <option value="process">Процесс</option>
             </select>
           </div>
@@ -450,6 +451,35 @@ export function ProjectFormModal({
               onChange={(e) => setConfig({ systemdUnit: e.target.value })}
               placeholder="shop-api.service"
             />
+          </div>
+        )}
+        {form.kind === "script" && (
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="label">Скрипт раскатки</label>
+              <input
+                className="input font-mono text-xs"
+                value={form.config.deployScript ?? ""}
+                onChange={(e) => setConfig({ deployScript: e.target.value })}
+                placeholder="deploy.sh"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Путь относительно рабочей директории. Деплой: <code className="rounded bg-ink px-1">git pull</code>{" "}
+                + <code className="rounded bg-ink px-1">bash ./скрипт</code>. Пусто — <code className="rounded bg-ink px-1">deploy.sh</code>.
+              </p>
+            </div>
+            <div>
+              <label className="label">Скрипт снятия (опц.)</label>
+              <input
+                className="input font-mono text-xs"
+                value={form.config.undeployScript ?? ""}
+                onChange={(e) => setConfig({ undeployScript: e.target.value })}
+                placeholder="undeploy.sh"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Запускается по кнопке «Снять». Без него undeploy недоступен.
+              </p>
+            </div>
           </div>
         )}
         {/* Бэкап и restore — видимый блок, потому что от него зависят кнопки в проектах/деплоях. */}

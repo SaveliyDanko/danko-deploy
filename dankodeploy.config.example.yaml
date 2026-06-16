@@ -44,3 +44,15 @@ projects:
           run: "npm ci && npm run build"
         - name: "Reload nginx"
           run: "sudo systemctl reload nginx"
+
+  # 4) Раскатка скриптом из репозитория (kind: script)
+  #    Дефолт: git pull --ff-only -> bash ./deploy.sh
+  #    Скрипт лежит в репо (версионируется с кодом). Должен быть неинтерактивным,
+  #    идемпотентным и падать с ненулевым кодом при ошибке. См. docs/SERVICE-SPEC.md §6.5.
+  - name: "ml-worker"
+    kind: "script"
+    stack: "Python"
+    config:
+      workdir: "/srv/ml-worker"
+      deployScript: "deploy.sh" # опционально; по умолчанию deploy.sh
+      undeployScript: "undeploy.sh" # опционально; без него undeploy недоступен

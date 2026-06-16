@@ -21,6 +21,9 @@ function withGitSshCommand(command: string, keyPath: string): string {
   return `export GIT_SSH_COMMAND=${shellQuote(gitSsh)}; ${command}`;
 }
 
+/** Путь к скрипту раскатки по умолчанию (относительно workdir) для kind === "script". */
+const DEFAULT_DEPLOY_SCRIPT = "deploy.sh";
+
 /**
  * Возвращает шаги деплоя для проекта. Если в конфиге заданы кастомные deploySteps —
  * используются они; иначе берутся разумные дефолты по типу сервиса.
@@ -52,6 +55,13 @@ export function resolveDeploySteps(input: DeployInput): DeployStep[] {
         { name: "Git pull", run: "git pull --ff-only" },
         { name: "Restart unit", run: `sudo systemctl restart ${shellQuote(unit)}` },
         { name: "Status", run: `systemctl is-active ${shellQuote(unit)}` },
+      ];
+    }
+    case "script": {
+      const script = input.config.deployScript || DEFAULT_DEPLOY_SCRIPT;
+      return [
+        { name: "Git pull", run: "git pull --ff-only" },
+        { name: "Run script", run: `bash ./${shellQuote(script)}` },
       ];
     }
     case "process":
@@ -118,12 +128,32 @@ export class DeployRunner {
     }
   }
 
-  /** Проверяет серверные зависимости до изменения рабочей директории. */
+  /** Проверяет серверные зависимости и наличие артефактов до запуска шагов. */
   private async preflight(
     target: SshTarget,
     input: DeployInput,
     handlers: DeployHandlers,
   ): Promise<boolean> {
+    if (input.kind === "script") {
+      // Скрипт лежит в репозитории — проверяем, что он есть в workdir, до запуска шагов,
+      // чтобы дать понятную ошибку вместо «bash: No such file».
+      const script = input.config.deployScript || DEFAULT_DEPLOY_SCRIPT;
+      const check = await this.ssh.exec(
+        target,
+        `test -f ${shellQuote(script)}`,
+        input.config.workdir,
+      );
+      if (check.code !== 0) {
+        handlers.onLog(
+          `✖ Скрипт раскатки не найден: ${input.config.workdir}/${script}. Проверьте config.deployScript и что файл закоммичен в репозиторий.`,
+          "info",
+        );
+        handlers.onDone("failed");
+        return false;
+      }
+      return true;
+    }
+
     if (input.kind !== "docker-compose") return true;
 
     const docker = await this.ssh.exec(target, "command -v docker >/dev/null 2>&1");

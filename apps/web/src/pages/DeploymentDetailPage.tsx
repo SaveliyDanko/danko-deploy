@@ -12,6 +12,7 @@ import { ArtifactChip } from "./ProjectDetailPage.js";
 const kindLabels = {
   "docker-compose": "Docker Compose",
   systemd: "systemd-юнит",
+  script: "Скрипт раскатки",
   process: "Процесс / свои команды",
 } as const;
 

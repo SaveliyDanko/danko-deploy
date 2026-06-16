@@ -51,6 +51,8 @@
 | `workdir` | Рабочая директория на сервере (где `git pull` и все команды). **Обязательно.** |
 | `composeFile` | Имя compose-файла, если не `docker-compose.yml` (добавляет `-f <file>`). |
 | `systemdUnit` | Имя systemd-юнита (для kind=systemd). |
+| `deployScript` | Путь к скрипту раскатки в репозитории относительно `workdir` (для kind=script). По умолчанию `deploy.sh`. |
+| `undeployScript` | Путь к скрипту снятия в репозитории (для kind=script). Без него undeploy недоступен. |
 | `deploySteps` | Кастомные шаги деплоя — **полностью заменяют** дефолтные для kind. |
 | `undeploySteps` | Кастомные шаги undeploy — **полностью заменяют** дефолтные для kind. |
 | `backupArtifacts` | Список именованных артефактов: `[{name, backupCommand ({{OUT}}), restoreCommand? ({{IN}})}]`. |
@@ -330,6 +332,44 @@ services:
 
 ---
 
+## 6.5 script — раскатка скриптом из репозитория
+
+Для проектов, чья раскатка описана **скриптом, лежащим в самом репозитории** (`deploy.sh`).
+Удобно, когда логика деплоя сложнее одной команды, но её хочется версионировать вместе с кодом,
+а не дробить на `deploySteps` в UI.
+
+- **Требования к репо:** код в git-`workdir`; в репозитории — исполняемый скрипт раскатки
+  (по умолчанию `deploy.sh` в корне). Путь настраивается через `config.deployScript`.
+- **Деплой (дефолт):**
+  ```
+  1. git pull --ff-only
+  2. bash ./<deployScript>        # deployScript || "deploy.sh"
+  ```
+  Перед запуском панель проверяет, что скрипт существует в `workdir` (`test -f`), и падает с
+  понятной ошибкой, если его нет (не закоммичен / неверный путь).
+- **Undeploy:** выполняет `bash ./<undeployScript>`, если задан `config.undeployScript`; иначе
+  undeploy намеренно завершится ошибкой (как у `process` без `undeploySteps`).
+- **Статус:** **`unknown`** — как у process (панель не знает, как опрашивать произвольный скрипт).
+  Git-ревизия при этом считывается обычным образом.
+- **Приватный репозиторий:** `git pull` внутри script-деплоя работает с приватным репо через тот же
+  временный deploy-ключ (`GIT_SSH_COMMAND`), что и остальные типы (см. [§3.1](#31-первичная-раскатка-из-git-git-clone-по-кнопке)).
+
+**Требования к самому скрипту** (иначе деплой по SSH поведёт себя непредсказуемо):
+
+- `#!/usr/bin/env bash` + `set -euo pipefail` — ошибка обязана давать **ненулевой код возврата**
+  (панель прерывает деплой по ненулевому коду шага).
+- **Неинтерактивность** — запуск идёт по SSH **без TTY**: никаких запросов ввода, прогресс-баров с
+  `\r`, обязательного цвета. Командам, которые спрашивают подтверждение, добавляйте `-y`.
+- **Идемпотентность** — повторный запуск на уже раскатанном проекте не должен ломать состояние.
+- **Секреты — вне репозитория.** Скрипт читает их из `<workdir>/.env` (его пишет панель, см.
+  [§4.6](#46-как-задать-env)), а не хранит в коде.
+- В конце — **smoke-check** (curl health / `docker compose ps` / проверка процесса) с падением при неуспехе.
+
+> 🤖 Готовый промт для LLM-агента, который подготовит репозиторий к script-деплою (создаст
+> `deploy.sh`/`undeploy.sh` по этим правилам) — в UI: **Docs → LLM-спека → «Деплой скриптом»**.
+
+---
+
 ## 7. Манифест `dankodeploy.yml` (рекомендуемый будущий контракт)
 
 > ⚠️ **Пока не реализовано:** панель этот файл **не читает**. Сейчас конфигурация задаётся в UI.
@@ -339,7 +379,7 @@ services:
 Идея — файл `dankodeploy.yml` в корне репозитория с полями **1:1 к текущему `config`**:
 
 ```yaml
-kind: docker-compose          # docker-compose | systemd | process
+kind: docker-compose          # docker-compose | systemd | script | process
 workdir: /srv/shop-api
 composeFile: docker-compose.prod.yml   # опционально
 backupCommand: "docker compose exec -T db pg_dump -U postgres shop | gzip > {{OUT}}"
@@ -473,6 +513,8 @@ backupCron: "0 3 * * *"
 | `workdir` | да | string | Рабочая директория на сервере (git-репо) | `/srv/shop-api` |
 | `composeFile` | нет | string | Нестандартное имя compose-файла (`-f`) | `docker-compose.prod.yml` |
 | `systemdUnit` | нет | string | Имя systemd-юнита (kind=systemd) | `telegram-bot.service` |
+| `deployScript` | нет | string | Скрипт раскатки в репо (kind=script), по умолчанию `deploy.sh` | `deploy.sh` |
+| `undeployScript` | нет | string | Скрипт снятия в репо (kind=script) | `undeploy.sh` |
 | `deploySteps` | нет | `{name, run}[]` | Кастомные шаги (заменяют дефолт) | см. §4.2 / §6 |
 | `backupCommand` | нет | string | Команда бэкапа (`{{OUT}}` = файл) | `… pg_dump … > {{OUT}}` |
 | `backupCron` | нет | string | Cron авто-бэкапов | `0 3 * * *` |

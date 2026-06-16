@@ -85,7 +85,7 @@ export const servers = sqliteTable("servers", {
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  kind: text("kind", { enum: ["docker-compose", "systemd", "process"] }).notNull(),
+  kind: text("kind", { enum: ["docker-compose", "systemd", "script", "process"] }).notNull(),
   stack: text("stack"),
   description: text("description"),
   /** JSON ProjectConfig */
