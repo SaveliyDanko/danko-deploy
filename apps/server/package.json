@@ -20,7 +20,7 @@
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/websocket": "^11.0.1",
     "adm-zip": "^0.6.0",
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.2.0",
     "nanoid": "^5.0.9",
