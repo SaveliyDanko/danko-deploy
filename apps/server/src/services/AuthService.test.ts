@@ -56,4 +56,15 @@ describe("AuthService.validateSessionToken", () => {
     const newAuth = new AuthService(HASH_B, SECRET);
     expect(newAuth.validateSessionToken(token)).toBe(false);
   });
+
+  it("отзыв: смена версии 2FA инвалидирует ранее выданные токены", () => {
+    let version = 0;
+    const auth = new AuthService(HASH_A, SECRET, () => version);
+    const token = auth.issueSessionToken();
+    expect(auth.validateSessionToken(token)).toBe(true);
+
+    version += 1;
+    expect(auth.validateSessionToken(token)).toBe(false);
+    expect(auth.validateSessionToken(auth.issueSessionToken())).toBe(true);
+  });
 });

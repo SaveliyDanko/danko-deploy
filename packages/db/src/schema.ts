@@ -2,6 +2,24 @@ import { sql } from "drizzle-orm";
 import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
+ * Настройки второго фактора единственного владельца панели. Активный и ожидающий
+ * подтверждения TOTP-секреты шифруются мастер-ключом; recovery-коды хранятся как HMAC-хэши.
+ */
+export const authSettings = sqliteTable("auth_settings", {
+  id: integer("id").primaryKey(),
+  totpSecretEnc: text("totp_secret_enc"),
+  pendingTotpSecretEnc: text("pending_totp_secret_enc"),
+  recoveryCodeHashes: text("recovery_code_hashes"),
+  lastTotpCounter: integer("last_totp_counter"),
+  /** Меняется при настройке 2FA и участвует в подписи сессии, отзывая старые cookie. */
+  authVersion: integer("auth_version").notNull().default(0),
+  totpEnabledAt: text("totp_enabled_at"),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+});
+
+/**
  * Хранилище SSH-ключей. Приватный ключ шифруется AES-256-GCM мастер-ключом;
  * публичный ключ и fingerprint лежат открыто (нужны для UI и ssh-copy-id).
  */
@@ -50,7 +68,9 @@ export const servers = sqliteTable("servers", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   /** Тип подключения: ssh (по SSH к удалённому VPS) или local (тот же хост, где запущена панель) */
-  connectionType: text("connection_type", { enum: ["ssh", "local"] }).notNull().default("ssh"),
+  connectionType: text("connection_type", { enum: ["ssh", "local"] })
+    .notNull()
+    .default("ssh"),
   host: text("host").notNull().default("localhost"),
   port: integer("port").notNull().default(22),
   username: text("username").notNull().default("root"),
@@ -239,7 +259,9 @@ export const vpnInstallations = sqliteTable(
     serverId: text("server_id")
       .notNull()
       .references(() => servers.id, { onDelete: "cascade" }),
-    kind: text("kind", { enum: ["outline"] }).notNull().default("outline"),
+    kind: text("kind", { enum: ["outline"] })
+      .notNull()
+      .default("outline"),
     status: text("status", { enum: ["installing", "active", "error", "removed"] })
       .notNull()
       .default("installing"),
@@ -331,3 +353,5 @@ export type VpnInstallationRow = typeof vpnInstallations.$inferSelect;
 export type NewVpnInstallationRow = typeof vpnInstallations.$inferInsert;
 export type VpnClientRow = typeof vpnClients.$inferSelect;
 export type NewVpnClientRow = typeof vpnClients.$inferInsert;
+export type AuthSettingsRow = typeof authSettings.$inferSelect;
+export type NewAuthSettingsRow = typeof authSettings.$inferInsert;

@@ -19,6 +19,7 @@ import { ServerService } from "./services/ServerService.js";
 import { ServerSetupService } from "./services/ServerSetupService.js";
 import { SshKeyService } from "./services/SshKeyService.js";
 import { TerminalBridge } from "./services/TerminalBridge.js";
+import { TwoFactorService } from "./services/TwoFactorService.js";
 import { VpnClientService } from "./services/VpnClientService.js";
 import { VpnClientScheduler } from "./services/VpnClientScheduler.js";
 import { VpnService } from "./services/VpnService.js";
@@ -31,6 +32,7 @@ export interface AppContext {
   local: LocalExecutor;
   hub: WsHub;
   auth: AuthService;
+  twoFactor: TwoFactorService;
   servers: ServerService;
   serverSetup: ServerSetupService;
   keys: SshKeyService;
@@ -60,7 +62,10 @@ export function buildContext(config: AppConfig): AppContext {
   ssh.setLocal(local);
 
   const hub = new WsHub();
-  const auth = new AuthService(config.authPasswordHash, config.sessionSecret);
+  const twoFactor = new TwoFactorService(db, config.masterKey);
+  const auth = new AuthService(config.authPasswordHash, config.sessionSecret, () =>
+    twoFactor.sessionVersion(),
+  );
 
   const servers = new ServerService(db, ssh, config.masterKey);
   // TOFU-верификация host key: SshExecutor запоминает/сверяет ключ через ServerService.
@@ -98,6 +103,7 @@ export function buildContext(config: AppConfig): AppContext {
     local,
     hub,
     auth,
+    twoFactor,
     servers,
     serverSetup,
     keys,

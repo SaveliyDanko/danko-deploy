@@ -21,6 +21,7 @@ type NavSection =
   | "ai"
   | "vpn"
   | "backup"
+  | "security"
   | "docs";
 
 type NavItem = {
@@ -41,6 +42,7 @@ const navItems: NavItem[] = [
   { to: "/ai", label: "AI", section: "ai", remember: true },
   { to: "/vpn", label: "VPN", section: "vpn", remember: true },
   { to: "/backup", label: "Бэкап", section: "backup", remember: true },
+  { to: "/security", label: "Безопасность", section: "security", remember: true },
   { to: "/docs", label: "Docs", section: "docs", remember: true },
 ];
 
@@ -99,12 +101,8 @@ export function App() {
   const qc = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
-  const [lastRoutes, setLastRoutes] = useState<Partial<Record<NavSection, string>>>(
-    readLastRoutes,
-  );
-  const [deployLog, setDeployLog] = useState<DeployLogDrawerState | null>(
-    getDeployLogDrawerState,
-  );
+  const [lastRoutes, setLastRoutes] = useState<Partial<Record<NavSection, string>>>(readLastRoutes);
+  const [deployLog, setDeployLog] = useState<DeployLogDrawerState | null>(getDeployLogDrawerState);
   // Мобильное меню (бургер). Закрывается при смене маршрута.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const me = useQuery({ queryKey: ["auth", "me"], queryFn: api.me });

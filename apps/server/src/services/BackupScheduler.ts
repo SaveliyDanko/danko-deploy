@@ -20,7 +20,7 @@ export class BackupScheduler {
 
   /** Пересобирает расписание из текущего состояния проектов и их деплоев. */
   reload(): void {
-    for (const task of this.tasks.values()) task.stop();
+    for (const task of this.tasks.values()) void task.stop();
     this.tasks.clear();
 
     for (const project of this.projects.list()) {
@@ -41,7 +41,7 @@ export class BackupScheduler {
   }
 
   stopAll(): void {
-    for (const task of this.tasks.values()) task.stop();
+    for (const task of this.tasks.values()) void task.stop();
     this.tasks.clear();
   }
 }

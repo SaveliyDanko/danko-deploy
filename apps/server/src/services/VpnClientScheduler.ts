@@ -23,7 +23,7 @@ export class VpnClientScheduler {
 
   /** Пересобирает расписание из текущих VPN-клиентов. */
   reload(): void {
-    for (const task of this.tasks.values()) task.stop();
+    for (const task of this.tasks.values()) void task.stop();
     this.tasks.clear();
 
     const rows = this.db.select().from(vpnClients).where(eq(vpnClients.status, "active")).all();
@@ -40,7 +40,7 @@ export class VpnClientScheduler {
   }
 
   stopAll(): void {
-    for (const task of this.tasks.values()) task.stop();
+    for (const task of this.tasks.values()) void task.stop();
     this.tasks.clear();
   }
 }

@@ -1,5 +1,6 @@
 import type {
   AiAgentPublic,
+  AuthMe,
   BackupRecord,
   ConnectionTestResult,
   CreateAiAgentInput,
@@ -36,6 +37,9 @@ import type {
   StorageBreakdown,
   SshKeyPublic,
   UpdateProjectInput,
+  RecoveryCodes,
+  TwoFactorSetup,
+  TwoFactorStatus,
 } from "@dankodeploy/shared";
 
 /** Тонкая обёртка над fetch с разбором ошибок API. credentials — чтобы слать cookie сессии. */
@@ -243,10 +247,36 @@ export const api = {
   },
 
   // --- Аутентификация ---
-  me: () => http<{ authenticated: boolean; authRequired: boolean }>("/api/auth/me"),
-  login: (password: string) =>
-    http<{ ok: true }>("/api/auth/login", { method: "POST", body: JSON.stringify({ password }) }),
+  me: () => http<AuthMe>("/api/auth/me"),
+  login: (password: string, code?: string) =>
+    http<{ ok: true }>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ password, code: code || undefined }),
+    }),
   logout: () => http<{ ok: true }>("/api/auth/logout", { method: "POST" }),
+  twoFactorStatus: () => http<TwoFactorStatus>("/api/auth/two-factor"),
+  beginTwoFactorSetup: (password: string) =>
+    http<TwoFactorSetup>("/api/auth/two-factor/setup", {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    }),
+  cancelTwoFactorSetup: () =>
+    http<{ ok: true }>("/api/auth/two-factor/setup", { method: "DELETE" }),
+  confirmTwoFactorSetup: (password: string, code: string) =>
+    http<RecoveryCodes>("/api/auth/two-factor/confirm", {
+      method: "POST",
+      body: JSON.stringify({ password, code }),
+    }),
+  disableTwoFactor: (password: string, code: string) =>
+    http<{ ok: true }>("/api/auth/two-factor/disable", {
+      method: "POST",
+      body: JSON.stringify({ password, code }),
+    }),
+  regenerateRecoveryCodes: (password: string, code: string) =>
+    http<RecoveryCodes>("/api/auth/two-factor/recovery-codes", {
+      method: "POST",
+      body: JSON.stringify({ password, code }),
+    }),
 
   // --- AI-агенты ---
   listAiAgents: () => http<AiAgentPublic[]>("/api/ai/agents"),
@@ -259,10 +289,8 @@ export const api = {
     http<{ ok: true }>(`/api/ai/agents/${id}/uninstall`, { method: "POST" }),
   startAiAgent: (id: string) =>
     http<{ ok: true }>(`/api/ai/agents/${id}/start`, { method: "POST" }),
-  stopAiAgent: (id: string) =>
-    http<{ ok: true }>(`/api/ai/agents/${id}/stop`, { method: "POST" }),
-  aiAgentStatus: (id: string) =>
-    http<{ status: string }>(`/api/ai/agents/${id}/status`),
+  stopAiAgent: (id: string) => http<{ ok: true }>(`/api/ai/agents/${id}/stop`, { method: "POST" }),
+  aiAgentStatus: (id: string) => http<{ status: string }>(`/api/ai/agents/${id}/status`),
 
   // --- VPN (Outline/Shadowsocks) ---
   listVpn: () => http<VpnInstallationPublic[]>("/api/vpn"),
@@ -297,17 +325,14 @@ export const api = {
   syncVpnClient: (id: string) =>
     http<{ runId: string }>(`/api/vpn-client/${id}/sync`, { method: "POST" }),
   /** Внешний IP сервера + гео (страна/провайдер) для проверки выхода через VPN. */
-  vpnClientExternalIp: (id: string) =>
-    http<VpnClientExitInfo>(`/api/vpn-client/${id}/external-ip`),
+  vpnClientExternalIp: (id: string) => http<VpnClientExitInfo>(`/api/vpn-client/${id}/external-ip`),
   /** Проверка ChatGPT/Claude/Telegram с сервера (через VPN). */
-  vpnClientServices: (id: string) =>
-    http<VpnServiceCheck[]>(`/api/vpn-client/${id}/services`),
+  vpnClientServices: (id: string) => http<VpnServiceCheck[]>(`/api/vpn-client/${id}/services`),
   /** Повторно включить выключенный клиент (с сохранённой подпиской/локацией). */
   enableVpnClient: (id: string) =>
     http<{ runId: string }>(`/api/vpn-client/${id}/enable`, { method: "POST" }),
   /** Локации из сохранённой подписки клиента (для выпадашки на карточке). */
-  vpnClientLocations: (id: string) =>
-    http<VpnClientServer[]>(`/api/vpn-client/${id}/locations`),
+  vpnClientLocations: (id: string) => http<VpnClientServer[]>(`/api/vpn-client/${id}/locations`),
   /** Сменить локацию у подключённого клиента. */
   changeVpnClientLocation: (id: string, selectedLabel: string) =>
     http<{ runId: string }>(`/api/vpn-client/${id}/location`, {

@@ -20,6 +20,7 @@ import { ProjectsPage } from "./pages/ProjectsPage.js";
 import { ServerDetailPage } from "./pages/ServerDetailPage.js";
 import { ServerTerminalPage } from "./pages/ServerTerminalPage.js";
 import { ServersPage } from "./pages/ServersPage.js";
+import { SecurityPage } from "./pages/SecurityPage.js";
 import { VpnPage } from "./pages/VpnHubPage.js";
 
 import "./index.css";
@@ -69,6 +70,7 @@ const router = createBrowserRouter([
       // Старая страница объединена в табы /vpn — сохраняем ссылки/закладки.
       { path: "vpn-client", element: <Navigate to="/vpn?tab=client" replace /> },
       { path: "backup", element: <BackupPage /> },
+      { path: "security", element: <SecurityPage /> },
       {
         path: "docs",
         element: <DocsPage />,

@@ -21,6 +21,7 @@ export class AuthService {
   constructor(
     private readonly passwordHash: string | undefined,
     private readonly sessionSecret: string,
+    private readonly getSessionVersion: () => number = () => 0,
   ) {}
 
   /** Проверяет введённый пароль против хранимого хэша. */
@@ -61,11 +62,12 @@ export class AuthService {
   }
 
   /**
-   * Ключ подписи: sessionSecret + хэш пароля панели. Привязка к паролю даёт отзыв
-   * всех сессий при его смене (хэш меняется → подпись старых токенов не сходится).
+   * Ключ подписи: sessionSecret + хэш пароля + версия auth-настроек. Привязка
+   * отзывает все сессии при смене пароля, включении/отключении 2FA или пересоздании
+   * recovery-кодов.
    */
   private sign(payload: string): string {
-    const key = `${this.sessionSecret}\0${this.passwordHash ?? ""}`;
+    const key = `${this.sessionSecret}\0${this.passwordHash ?? ""}\0${this.getSessionVersion()}`;
     return createHmac("sha256", key).update(payload).digest("hex");
   }
 }
