@@ -4,6 +4,10 @@
 - import_tasks: docker.yml
   tags: [docker]
 
+- import_tasks: backup.yml
+  # Тег deploy гарантирует backup и для быстрого `--tags code,deploy`.
+  tags: [backup, deploy]
+
 - import_tasks: code.yml
   tags: [code]
 

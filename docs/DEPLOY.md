@@ -47,6 +47,12 @@
   и drizzle-kit (cwd `packages/db`) смотрели на один файл.
 - **Native-модули** (`better-sqlite3`, `ssh2`) компилируются в образе под платформу контейнера;
   в рантайме нужны системные `ssh-keygen` (KeyManager) и `tmux` (AI-агенты) — они в образе.
+- **Pre-deploy backup** выполняется внешним Ansible до `git pull`: backend кратко останавливается,
+  три named volume и постоянные секреты архивируются в `/var/backups/dankodeploy`, после чего
+  старый backend запускается обратно. Даже ошибка архивации не оставляет панель выключенной и
+  блокирует дальнейшее обновление.
+- **SSH host key проверяется строго:** первый fingerprint подтверждается вне Ansible, последующие
+  подключения сверяются с `~/.ssh/known_hosts` управляющей машины.
 
 ---
 
@@ -136,6 +142,8 @@ docker compose -f deploy/docker-compose.yml up -d --build
 ## Что бэкапить и беречь
 
 - **`DANKODEPLOY_MASTER_KEY`** — потеря = невозможность расшифровать все сохранённые SSH-доступы.
+- **`/var/backups/dankodeploy`** — pre-deploy снимки SQLite, backup-артефактов, SSH-volume и
+  конфигурации. По умолчанию хранятся 14 дней; копируйте их за пределы VPS.
 - **volume `dankodeploy_data`** (SQLite-база) — серверы, проекты, деплои, история.
 - **volume `dankodeploy_backups`** — скачанные артефакты бэкапов проектов.
 - **volume `dankodeploy_ssh`** — known_hosts/ключи исходящих SSH самой панели.
@@ -151,4 +159,5 @@ docker compose -f deploy/docker-compose.yml up -d --build
 - [ ] HTTPS работает, HTTP редиректит на HTTPS (Traefik делает это сам).
 - [ ] Порт `3001` **не** опубликован наружу (у `server` в compose нет `ports`).
 - [ ] `.env`, vault, `secrets/`, volumes не попадают в git.
+- [ ] Fingerprint SSH-хоста проверен через консоль провайдера; неизвестные host keys не принимаются вслепую.
 - [ ] (Опционально) firewall/`ufw` пропускает только 80/443 и ваш SSH.

@@ -1,0 +1,241 @@
+---
+# Снимок постоянных данных перед обновлением. Контейнер server останавливаем только
+# на время архивации, чтобы SQLite и файлы SSH попали в согласованное состояние.
+
+- name: Создать pre-deploy backup DankoDeploy
+  when: dankodeploy_backup_enabled | bool
+  block:
+    - name: Проверить наличие установленного compose-файла
+      ansible.builtin.stat:
+        path: "{{ dankodeploy_dir }}/{{ dankodeploy_compose_file }}"
+      register: dankodeploy_backup_compose
+
+    - name: Проверить наличие production env
+      ansible.builtin.stat:
+        path: "{{ dankodeploy_dir }}/.env"
+      register: dankodeploy_backup_env
+
+    - name: Создать каталог pre-deploy backups
+      ansible.builtin.file:
+        path: "{{ dankodeploy_backup_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Найти контейнер backend DankoDeploy
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --env-file
+          - "{{ dankodeploy_dir }}/.env"
+          - -f
+          - "{{ dankodeploy_compose_file }}"
+          - ps
+          - -q
+          - --all
+          - server
+        chdir: "{{ dankodeploy_dir }}"
+      become_user: "{{ dankodeploy_user }}"
+      register: dankodeploy_backup_server
+      changed_when: false
+      when:
+        - dankodeploy_backup_compose.stat.exists
+        - dankodeploy_backup_env.stat.exists
+
+    - name: Сообщить, что на первом деплое backup не нужен
+      ansible.builtin.debug:
+        msg: "Контейнер backend не найден — pre-deploy backup пропущен."
+      when: (dankodeploy_backup_server.stdout | default('') | trim) == ''
+
+    - name: Снять копию постоянных данных
+      when: (dankodeploy_backup_server.stdout | default('') | trim) != ''
+      block:
+        # Образ загружаем до остановки панели, чтобы не удлинять окно недоступности.
+        - name: Подготовить образ для архивации volumes
+          ansible.builtin.command:
+            argv:
+              - docker
+              - pull
+              - "{{ dankodeploy_backup_image }}"
+          become_user: "{{ dankodeploy_user }}"
+          register: dankodeploy_backup_image_pull
+          changed_when: "'Downloaded newer image' in dankodeploy_backup_image_pull.stdout"
+
+        - name: Определить persistent volumes backend
+          ansible.builtin.command:
+            argv:
+              - docker
+              - inspect
+              - --format
+              - "{% raw %}{{json .Mounts}}{% endraw %}"
+              - "{{ dankodeploy_backup_server.stdout | trim }}"
+          become_user: "{{ dankodeploy_user }}"
+          register: dankodeploy_backup_mounts_raw
+          changed_when: false
+
+        - name: Проверить исходное состояние backend
+          ansible.builtin.command:
+            argv:
+              - docker
+              - inspect
+              - --format
+              - "{% raw %}{{.State.Running}}{% endraw %}"
+              - "{{ dankodeploy_backup_server.stdout | trim }}"
+          become_user: "{{ dankodeploy_user }}"
+          register: dankodeploy_backup_server_state
+          changed_when: false
+
+        - name: Выбрать volumes с постоянными данными
+          ansible.builtin.set_fact:
+            dankodeploy_backup_mounts: >-
+              {{ (dankodeploy_backup_mounts_raw.stdout | from_json)
+                 | selectattr('Type', 'equalto', 'volume')
+                 | selectattr('Destination', 'in', ['/app/data', '/app/backups', '/root/.ssh'])
+                 | list }}
+
+        - name: Проверить полноту набора volumes
+          ansible.builtin.assert:
+            that:
+              - "'/app/data' in (dankodeploy_backup_mounts | map(attribute='Destination') | list)"
+              - "'/app/backups' in (dankodeploy_backup_mounts | map(attribute='Destination') | list)"
+              - "'/root/.ssh' in (dankodeploy_backup_mounts | map(attribute='Destination') | list)"
+            fail_msg: >-
+              Не найдены все обязательные volumes (/app/data, /app/backups, /root/.ssh).
+              Обновление остановлено, чтобы не продолжать без полной резервной копии.
+
+        - name: Зафиксировать параметры снимка
+          ansible.builtin.set_fact:
+            dankodeploy_backup_snapshot_dir: >-
+              {{ dankodeploy_backup_dir }}/{{ ansible_date_time.iso8601_basic_short }}
+
+        - name: Создать каталог снимка
+          ansible.builtin.file:
+            path: "{{ dankodeploy_backup_snapshot_dir }}"
+            state: directory
+            owner: root
+            group: root
+            mode: "0700"
+
+        - name: Прочитать текущую git-ревизию
+          ansible.builtin.command:
+            cmd: git rev-parse HEAD
+            chdir: "{{ dankodeploy_dir }}"
+          become_user: "{{ dankodeploy_user }}"
+          register: dankodeploy_backup_revision
+          changed_when: false
+
+        - name: Остановить backend на время согласованного снимка
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - --env-file
+              - "{{ dankodeploy_dir }}/.env"
+              - -f
+              - "{{ dankodeploy_compose_file }}"
+              - stop
+              - server
+            chdir: "{{ dankodeploy_dir }}"
+          become_user: "{{ dankodeploy_user }}"
+          register: dankodeploy_backup_server_stop
+          when: (dankodeploy_backup_server_state.stdout | trim) == 'true'
+
+        - name: Заархивировать persistent volumes
+          ansible.builtin.command:
+            argv:
+              - docker
+              - run
+              - --rm
+              - --volume
+              - "{{ item.Name }}:/source:ro"
+              - --volume
+              - "{{ dankodeploy_backup_snapshot_dir }}:/backup"
+              - "{{ dankodeploy_backup_image }}"
+              - tar
+              - -czf
+              - "/backup/{{ item.Destination | regex_replace('^/', '') | replace('/', '-') }}.tar.gz"
+              - -C
+              - /source
+              - .
+          loop: "{{ dankodeploy_backup_mounts }}"
+          loop_control:
+            label: "{{ item.Destination }}"
+
+        - name: Заархивировать env и постоянные секреты
+          ansible.builtin.command:
+            argv:
+              - tar
+              - -czf
+              - "{{ dankodeploy_backup_snapshot_dir }}/configuration.tar.gz"
+              - -C
+              - "{{ dankodeploy_dir }}"
+              - .env
+              - secrets
+
+        - name: Записать метаданные снимка
+          ansible.builtin.copy:
+            dest: "{{ dankodeploy_backup_snapshot_dir }}/manifest.txt"
+            owner: root
+            group: root
+            mode: "0600"
+            content: |
+              created_at={{ ansible_date_time.iso8601 }}
+              git_revision={{ dankodeploy_backup_revision.stdout | trim }}
+              compose_file={{ dankodeploy_compose_file }}
+              volumes={{ dankodeploy_backup_mounts | map(attribute='Name') | join(',') }}
+
+      always:
+        # Даже ошибка tar не должна оставить старую панель выключенной.
+        - name: Вернуть backend после попытки backup
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - --env-file
+              - "{{ dankodeploy_dir }}/.env"
+              - -f
+              - "{{ dankodeploy_compose_file }}"
+              - start
+              - server
+            chdir: "{{ dankodeploy_dir }}"
+          become_user: "{{ dankodeploy_user }}"
+          when:
+            - dankodeploy_backup_server_stop is defined
+            - not (dankodeploy_backup_server_stop.skipped | default(false))
+            - (dankodeploy_backup_server_stop.rc | default(1)) == 0
+
+        - name: Проверить возврат API после backup
+          ansible.builtin.uri:
+            url: "https://{{ dankodeploy_domain }}/api/health"
+            validate_certs: "{{ not (dankodeploy_acme_staging | bool) }}"
+            status_code: 200
+          register: dankodeploy_backup_health
+          retries: 12
+          delay: 5
+          until: dankodeploy_backup_health.status == 200
+          when:
+            - dankodeploy_backup_server_state is defined
+            - (dankodeploy_backup_server_state.stdout | default('false') | trim) == 'true'
+
+    - name: Найти устаревшие pre-deploy backups
+      ansible.builtin.find:
+        paths: "{{ dankodeploy_backup_dir }}"
+        file_type: directory
+        recurse: false
+        age: "{{ dankodeploy_backup_retention_days }}d"
+      register: dankodeploy_expired_backups
+
+    - name: Удалить pre-deploy backups старше срока хранения
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ dankodeploy_expired_backups.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Сообщить путь к созданному backup
+      ansible.builtin.debug:
+        msg: "Pre-deploy backup: {{ dankodeploy_backup_snapshot_dir }}"
+      when: dankodeploy_backup_snapshot_dir is defined

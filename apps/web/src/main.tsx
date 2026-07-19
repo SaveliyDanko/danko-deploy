@@ -14,6 +14,7 @@ import { DeploymentsPage } from "./pages/DeploymentsPage.js";
 import { DocsPage, DocsSectionPage } from "./pages/DocsPage.js";
 import { GitKeysPage } from "./pages/GitKeysPage.js";
 import { KeysPage } from "./pages/KeysPage.js";
+import { LandingPage } from "./pages/LandingPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage.js";
 import { ProjectsPage } from "./pages/ProjectsPage.js";
@@ -30,6 +31,7 @@ const queryClient = new QueryClient({
 });
 
 const router = createBrowserRouter([
+  { path: "/about", element: <LandingPage /> },
   { path: "/login", element: <LoginPage /> },
   // Полноэкранный терминал — вне общего layout (на весь экран, удобно с телефона).
   {

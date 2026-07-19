@@ -23,19 +23,19 @@
 и выполняет обычные shell-команды (метрики собираются опросом). AI-агенты — исключение: это
 сами CLI-инструменты, которые ставятся на сервер и живут в tmux; панель лишь даёт к ним терминал.
 
-Доступ к панели защищён опциональной **аутентификацией по паролю** (обязательна перед выносом
-наружу, т.к. веб-терминал = прямой shell-доступ к серверу).
+Доступ к панели защищён **паролем и опциональным TOTP-кодом** Google Authenticator (пароль
+обязателен перед выносом наружу, т.к. веб-терминал = прямой shell-доступ к серверу).
 
 ## 2. Зафиксированные продуктовые решения
 
-| Решение | Выбор | Почему |
-|---------|-------|--------|
-| Интерфейс | Веб-дашборд | Наглядно для мониторинга и сводок |
-| Язык | TypeScript (фронт + бэк) | Единый стек, общие типы |
-| Связь с VPS | SSH с панели, без агентов | Ничего не ставить на серверы |
-| Хостинг панели | Локально на ПК (`127.0.0.1`) | Безопасность: наружу не торчит |
-| Упаковка сервисов | Смешанная: docker-compose / systemd / process | Под реальные проекты пользователя |
-| БД | SQLite | Zero-config, локально; легко перенести на Postgres |
+| Решение           | Выбор                                         | Почему                                             |
+| ----------------- | --------------------------------------------- | -------------------------------------------------- |
+| Интерфейс         | Веб-дашборд                                   | Наглядно для мониторинга и сводок                  |
+| Язык              | TypeScript (фронт + бэк)                      | Единый стек, общие типы                            |
+| Связь с VPS       | SSH с панели, без агентов                     | Ничего не ставить на серверы                       |
+| Хостинг панели    | Локально на ПК (`127.0.0.1`)                  | Безопасность: наружу не торчит                     |
+| Упаковка сервисов | Смешанная: docker-compose / systemd / process | Под реальные проекты пользователя                  |
+| БД                | SQLite                                        | Zero-config, локально; легко перенести на Postgres |
 
 ## 3. Технологический стек
 
@@ -81,35 +81,37 @@ shared           ← web
 
 Чистые классы поверх SSH, без знания об HTTP. Все принимают `SshExecutor` и `SshTarget`.
 
-| Модуль | Файл | Назначение |
-|--------|------|-----------|
-| `SshExecutor` | `ssh/SshExecutor.ts` | Пул SSH-соединений (одно на сервер, переиспользуется). `exec`, `execStream`, `openShell` (pty для веб-терминала), `upload`, `download`, `testConnection`, `disconnect`. **Self-heal:** при ошибке открытия канала (`Channel open failure`) протухшее соединение сбрасывается из пула и пересоздаётся (`withConnection`). `classifySshError` — понятная категория ошибки (unreachable/handshake/auth/channel/**hostkey**) для UI. `setLocal()` подключает `LocalExecutor`: для серверов с `connectionType: "local"` команды/pty идут не по SSH, а локально. **Верификация host key (TOFU):** `setHostKeyStore()` подключает хранилище fingerprint'ов; `hostVerifier` при первом подключении запоминает ключ сервера (`hostKeyFingerprint` — формат `SHA256:base64`), при последующих сверяет и при несовпадении бросает `HostKeyMismatchError` (защита от MITM) |
-| `LocalExecutor` | `local/LocalExecutor.ts` | Локальное выполнение команд на хосте панели (`child_process`: `execSync`/`spawn`); из Docker-контейнера — через `nsenter -t 1 -m -u -i -n -p`. PTY терминала — через системный `script -qfc`. Таймаут команд 60 с. Реализует тот же интерфейс, что нужен `SshExecutor` для локального режима |
-| `KeyManager` | `ssh/KeyManager.ts` | Генерация пары (`ssh-keygen`), анализ импортированного ключа (публичный + fingerprint), развёртывание публичного ключа в `authorized_keys` (идемпотентно) |
-| `AgentInstaller` | `agents/AgentInstaller.ts` | Установка/удаление AI-CLI (Claude Code/Codex) и tmux по SSH (идемпотентно), создание/убийство tmux-сессии. `AGENT_SPECS` — расширяемые спецификации агентов |
-| `DeployRunner` | `deploy/DeployRunner.ts` | Выполняет шаги деплоя по SSH, стримит логи через колбэки. `resolveDeploySteps` даёт дефолтные шаги по типу сервиса |
-| `UndeployRunner` | `deploy/UndeployRunner.ts` | Выполняет шаги undeploy по SSH (зеркало DeployRunner). `resolveUndeploySteps` даёт дефолтные шаги остановки по типу сервиса |
-| `ProvisionRunner` | `deploy/ProvisionRunner.ts` | Первичная раскатка: `git clone` репо в `workdir` (public по https; private — приватный ключ во временный файл + `GIT_SSH_COMMAND`, удаляется в `finally`). Падает, если `workdir` не пуст. Стримит логи как DeployRunner |
-| `MetricsCollector` | `metrics/MetricsCollector.ts` | Собирает метрики ОДНОЙ ssh-командой (`/proc/loadavg`, `free`, `df`, `docker ps`, `docker stats --no-stream`, `ss -tulnp`), разделитель `===DANKO_SEP===`. Нагрузка по контейнерам (CPU%/RAM) мёрджится в `docker ps` по имени; `ss` даёт слушающие порты хоста (порт/протокол/адрес/процесс, публичный vs локальный). Экспортирует чистые `parseDisks`/`parseCpuPercent` (покрыты юнит-тестами) |
-| `StorageCollector` | `metrics/StorageCollector.ts` | Детальный разбор диска ОДНОЙ ssh-командой ПО КНОПКЕ (тяжелее обычных метрик: `du` по корню), разделитель `===DANKO_STORAGE_SEP===`: `df` (все ФС), `docker system df` (images/containers/volumes/build-cache в байтах, `parseDockerDf`), `du -x -d1 /` (топ-каталоги). Питает `GET /api/servers/:id/storage` → `StorageBreakdown` |
-| `BackupRunner` | `backup/BackupRunner.ts` | Выполняет команду бэкапа ОДНОГО артефакта (плейсхолдер `{{OUT}}` = путь к файлу), возвращает путь + размер. Сервис вызывает по каждому артефакту |
-| `RestoreRunner` | `backup/RestoreRunner.ts` | Заливает файл артефакта на сервер (`upload`) и выполняет его `restoreCommand` (плейсхолдер `{{IN}}` = путь к файлу); временный файл удаляется после |
-| `collectProjectRuntime` | `summary/ProjectStatus.ts` | Определяет статус сервиса (running/stopped/unknown) и git-ревизию по SSH |
-| `DockerInstaller` / `NodeInstaller` / `SshHardeningInstaller` | `server/*.ts` | Bootstrap VPS по SSH (идемпотентно). Hardening: drop-in `sshd_config.d/99-dankodeploy.conf` (лимиты, keepalive, fail2ban, опц. запрет пароля), `sshd -t` + `reload` |
-| `OutlineInstaller` | `server/OutlineInstaller.ts` | Раскатка/удаление **Outline Server (Shadowsocks)** по SSH через официальный `install_server.sh` от Jigsaw (сам ставит Docker + контейнер `shadowbox`). Стримит лог (как DockerInstaller), парсит из вывода `{apiUrl, certSha256}` и отдаёт через `onResult`. `remove` гасит контейнеры и чистит `/opt/outline` |
-| `VpnReadinessChecker` | `server/VpnReadinessChecker.ts` | Проверка технической готовности сервера к VPN ОДНОЙ ssh-командой (root/sudo, curl/wget, архитектура, тип виртуализации, наличие docker), разделитель `===DANKO_VPN_SEP===`. Возвращает булевы `VpnReadinessCheck[]` |
-| `SingBoxInstaller` | `server/SingBoxInstaller.ts` | Включение/выключение **VPN-клиента** (sing-box) по SSH: VPS гонит весь исходящий трафик через VPN-провайдера в режиме TUN. `run` ставит sing-box, пишет готовый конфиг (генерит панель) и `systemctl enable --now`. **Критично:** ДО старта поднимает kernel-страховку доступа к серверу (policy routing `table 100` на физ. шлюз): ответы на входящие соединения идут мимо TUN, иначе уходят с IP VPN-провайдера и клиент их не принимает. Три источника заворачиваются в `table 100`: SSH (`iptables` MARK по `--sport SSH` + `ip rule fwmark`), **ответы docker-контейнеров** (`ip rule from <docker-subnet>` для docker0/br-* — ловим по docker-src, т.к. MASQUERADE на внешний IP происходит позже) и процессы хоста (`from <host-src>`). Так доступ к SSH и сайтам за Traefik/docker сохраняется. `remove` снимает службу+страховку. `getExternalIp` — внешний IP для проверки в UI |
-| vless-модуль | `server/vless/{parseVlessUri,buildSingBoxConfig}.ts` | `decodeSubscription` (base64→строки), `parseVlessUri` (`vless://` → узел с REALITY-полями), `parseSubscriptionServers` (список локаций без секретов для UI), `buildSingBoxConfig` (узел → sing-box JSON: TUN inbound + vless outbound + route-правило `source_port:[SSH]→direct`) |
-| `VpnClientReadinessChecker` | `server/VpnClientReadinessChecker.ts` | Готовность сервера к VPN-клиенту ОДНОЙ ssh-командой (root/sudo, curl/wget, **`/dev/net/tun`**, systemd, iptables/ip, virt не openvz/lxc), разделитель `===DANKO_VPNC_SEP===` |
-| crypto | `crypto.ts` | `loadMasterKey`, `encryptSecret`, `decryptSecret` (AES-256-GCM); `hashPassword`/`verifyPassword` (scrypt, **N=2^15**, формат `scrypt$N$salt$hash` с разбором легаси `salt:hash`); `deriveKeyFromPassword` (scrypt-ключ из пароля для бэкапа конфигурации; стоимость в `kdf.n`) |
-| shellQuote | `util/shell.ts` | Экранирование строки для безопасной вставки в shell (используется в Deploy/Undeploy/Provision-раннерах и ProjectStatus для `composeFile`/`systemdUnit`/путей) |
+| Модуль                                                        | Файл                                                 | Назначение                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SshExecutor`                                                 | `ssh/SshExecutor.ts`                                 | Пул SSH-соединений (одно на сервер, переиспользуется). `exec`, `execStream`, `openShell` (pty для веб-терминала), `upload`, `download`, `testConnection`, `disconnect`. **Self-heal:** при ошибке открытия канала (`Channel open failure`) протухшее соединение сбрасывается из пула и пересоздаётся (`withConnection`). `classifySshError` — понятная категория ошибки (unreachable/handshake/auth/channel/**hostkey**) для UI. `setLocal()` подключает `LocalExecutor`: для серверов с `connectionType: "local"` команды/pty идут не по SSH, а локально. **Верификация host key (TOFU):** `setHostKeyStore()` подключает хранилище fingerprint'ов; `hostVerifier` при первом подключении запоминает ключ сервера (`hostKeyFingerprint` — формат `SHA256:base64`), при последующих сверяет и при несовпадении бросает `HostKeyMismatchError` (защита от MITM)                             |
+| `LocalExecutor`                                               | `local/LocalExecutor.ts`                             | Локальное выполнение команд на хосте панели (`child_process`: `execSync`/`spawn`); из Docker-контейнера — через `nsenter -t 1 -m -u -i -n -p`. PTY терминала — через системный `script -qfc`. Таймаут команд 60 с. Реализует тот же интерфейс, что нужен `SshExecutor` для локального режима                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `KeyManager`                                                  | `ssh/KeyManager.ts`                                  | Генерация пары (`ssh-keygen`), анализ импортированного ключа (публичный + fingerprint), развёртывание публичного ключа в `authorized_keys` (идемпотентно)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `AgentInstaller`                                              | `agents/AgentInstaller.ts`                           | Установка/удаление AI-CLI (Claude Code/Codex) и tmux по SSH (идемпотентно), создание/убийство tmux-сессии. `AGENT_SPECS` — расширяемые спецификации агентов                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `DeployRunner`                                                | `deploy/DeployRunner.ts`                             | Выполняет шаги деплоя по SSH, стримит логи через колбэки. `resolveDeploySteps` даёт дефолтные шаги по типу сервиса                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `UndeployRunner`                                              | `deploy/UndeployRunner.ts`                           | Выполняет шаги undeploy по SSH (зеркало DeployRunner). `resolveUndeploySteps` даёт дефолтные шаги остановки по типу сервиса                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `ProvisionRunner`                                             | `deploy/ProvisionRunner.ts`                          | Первичная раскатка: `git clone` репо в `workdir` (public по https; private — приватный ключ во временный файл + `GIT_SSH_COMMAND`, удаляется в `finally`). Падает, если `workdir` не пуст. Стримит логи как DeployRunner                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `MetricsCollector`                                            | `metrics/MetricsCollector.ts`                        | Собирает метрики ОДНОЙ ssh-командой (`/proc/loadavg`, `free`, `df`, `docker ps`, `docker stats --no-stream`, `ss -tulnp`), разделитель `===DANKO_SEP===`. Нагрузка по контейнерам (CPU%/RAM) мёрджится в `docker ps` по имени; `ss` даёт слушающие порты хоста (порт/протокол/адрес/процесс, публичный vs локальный). Экспортирует чистые `parseDisks`/`parseCpuPercent` (покрыты юнит-тестами)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `StorageCollector`                                            | `metrics/StorageCollector.ts`                        | Детальный разбор диска ОДНОЙ ssh-командой ПО КНОПКЕ (тяжелее обычных метрик: `du` по корню), разделитель `===DANKO_STORAGE_SEP===`: `df` (все ФС), `docker system df` (images/containers/volumes/build-cache в байтах, `parseDockerDf`), `du -x -d1 /` (топ-каталоги). Питает `GET /api/servers/:id/storage` → `StorageBreakdown`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `BackupRunner`                                                | `backup/BackupRunner.ts`                             | Выполняет команду бэкапа ОДНОГО артефакта (плейсхолдер `{{OUT}}` = путь к файлу), возвращает путь + размер. Сервис вызывает по каждому артефакту                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `RestoreRunner`                                               | `backup/RestoreRunner.ts`                            | Заливает файл артефакта на сервер (`upload`) и выполняет его `restoreCommand` (плейсхолдер `{{IN}}` = путь к файлу); временный файл удаляется после                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `collectProjectRuntime`                                       | `summary/ProjectStatus.ts`                           | Определяет статус сервиса (running/stopped/unknown) и git-ревизию по SSH                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `DockerInstaller` / `NodeInstaller` / `SshHardeningInstaller` | `server/*.ts`                                        | Bootstrap VPS по SSH (идемпотентно). Hardening: drop-in `sshd_config.d/99-dankodeploy.conf` (лимиты, keepalive, fail2ban, опц. запрет пароля), `sshd -t` + `reload`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `OutlineInstaller`                                            | `server/OutlineInstaller.ts`                         | Раскатка/удаление **Outline Server (Shadowsocks)** по SSH через официальный `install_server.sh` от Jigsaw (сам ставит Docker + контейнер `shadowbox`). Стримит лог (как DockerInstaller), парсит из вывода `{apiUrl, certSha256}` и отдаёт через `onResult`. `remove` гасит контейнеры и чистит `/opt/outline`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `VpnReadinessChecker`                                         | `server/VpnReadinessChecker.ts`                      | Проверка технической готовности сервера к VPN ОДНОЙ ssh-командой (root/sudo, curl/wget, архитектура, тип виртуализации, наличие docker), разделитель `===DANKO_VPN_SEP===`. Возвращает булевы `VpnReadinessCheck[]`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `SingBoxInstaller`                                            | `server/SingBoxInstaller.ts`                         | Включение/выключение **VPN-клиента** (sing-box) по SSH: VPS гонит весь исходящий трафик через VPN-провайдера в режиме TUN. `run` ставит sing-box, пишет готовый конфиг (генерит панель) и `systemctl enable --now`. **Критично:** ДО старта поднимает kernel-страховку доступа к серверу (policy routing `table 100` на физ. шлюз): ответы на входящие соединения идут мимо TUN, иначе уходят с IP VPN-провайдера и клиент их не принимает. Три источника заворачиваются в `table 100`: SSH (`iptables` MARK по `--sport SSH` + `ip rule fwmark`), **ответы docker-контейнеров** (`ip rule from <docker-subnet>` для docker0/br-\* — ловим по docker-src, т.к. MASQUERADE на внешний IP происходит позже) и процессы хоста (`from <host-src>`). Так доступ к SSH и сайтам за Traefik/docker сохраняется. `remove` снимает службу+страховку. `getExternalIp` — внешний IP для проверки в UI |
+| vless-модуль                                                  | `server/vless/{parseVlessUri,buildSingBoxConfig}.ts` | `decodeSubscription` (base64→строки), `parseVlessUri` (`vless://` → узел с REALITY-полями), `parseSubscriptionServers` (список локаций без секретов для UI), `buildSingBoxConfig` (узел → sing-box JSON: TUN inbound + vless outbound + route-правило `source_port:[SSH]→direct`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `VpnClientReadinessChecker`                                   | `server/VpnClientReadinessChecker.ts`                | Готовность сервера к VPN-клиенту ОДНОЙ ssh-командой (root/sudo, curl/wget, **`/dev/net/tun`**, systemd, iptables/ip, virt не openvz/lxc), разделитель `===DANKO_VPNC_SEP===`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| crypto                                                        | `crypto.ts`                                          | `loadMasterKey`, `encryptSecret`, `decryptSecret` (AES-256-GCM); `hashPassword`/`verifyPassword` (scrypt, **N=2^15**, формат `scrypt$N$salt$hash` с разбором легаси `salt:hash`); `deriveKeyFromPassword` (scrypt-ключ из пароля для бэкапа конфигурации; стоимость в `kdf.n`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| shellQuote                                                    | `util/shell.ts`                                      | Экранирование строки для безопасной вставки в shell (используется в Deploy/Undeploy/Provision-раннерах и ProjectStatus для `composeFile`/`systemdUnit`/путей)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 **Дефолтные шаги деплоя** (если не заданы `config.deploySteps`):
+
 - `docker-compose`: `git pull` → `docker compose pull --ignore-buildable` → `docker compose up -d --build` → `docker image prune -f`
 - `systemd`: `git pull` → `sudo systemctl restart <unit>` → `systemctl is-active <unit>`
 - `process`: только `git pull` (ожидается, что пользователь задаст свои `deploySteps`)
 
 **Дефолтные шаги undeploy**:
+
 - `docker-compose`: `docker compose down --remove-orphans` (volumes не удаляются)
 - `systemd`: `sudo systemctl stop <unit>` → проверка, что unit не active
 - `process`: требуется `config.undeploySteps`
@@ -117,17 +119,23 @@ shared           ← web
 ## 6. Backend (`apps/server`)
 
 ### Сборка зависимостей — `context.ts`
+
 `buildContext(config)` создаёт единый `AppContext` со всеми сервисами и общим `SshExecutor`/`WsHub`.
 Здесь же разрывается **циклическая зависимость** ServerService ↔ SshKeyService через ленивый
 `keyResolver`: сервер с `authMethod = "stored-key"` при построении `SshTarget` запрашивает
 расшифрованный приватный ключ из `SshKeyService`.
 
 ### Сервисы (`services/`)
+
 - **`AuthService`** — `verify(password)` (scrypt), `issueSessionToken`/`validateSessionToken`.
   Сессия stateless, но: **истекает** через `SESSION_TTL_MS` (30 дней — `validateSessionToken`
   проверяет `issuedAt`, не только подпись) и **отзывается** сменой пароля (ключ HMAC завязан на
   `sessionSecret` + хэш пароля → новый пароль инвалидирует все ранее выданные токены). `maxAge`
   cookie синхронизирован с TTL (`SESSION_TTL_SECONDS`).
+- **`TwoFactorService`** — подключение и проверка TOTP (Google Authenticator), допуск часов
+  ±30 секунд и запрет повторного использования счётчика. TOTP-секрет шифруется AES-256-GCM,
+  recovery-коды хранятся как HMAC-хэши и удаляются после первого использования. Изменение 2FA
+  увеличивает `auth_version`, поэтому старые сессии отзываются.
 - **`ServerService`** — CRUD серверов, шифрование секретов, `toTarget(row)` строит `SshTarget`
   (для `stored-key` резолвит ключ через `keyResolver`).
 - **`ServerSetupService`** — фоновые bootstrap-операции для VPS: установка Docker Engine +
@@ -158,7 +166,7 @@ shared           ← web
 - **`BackupService`** — `run(deploymentId, scheduled?)`: резолвит проект (команды/.env/workdir) +
   сервер; по каждому артефакту (`resolveBackupArtifacts`) бэкап по SSH → скачивание в `BACKUP_DIR` →
   удаление временного файла → одна запись истории (с `projectId` + `deploymentId`). `restore(deploymentId,
-  backupId, artifactNames?)` — заливает выбранные артефакты на сервер деплоя и выполняет `restoreCommand`.
+backupId, artifactNames?)` — заливает выбранные артефакты на сервер деплоя и выполняет `restoreCommand`.
   `saveUploaded(projectId, …)` — загруженный файл как артефакт `default` (без сервера). `history(projectId)`.
 - **`BackupScheduler`** — `reload()` пересобирает cron-задачи из `config.backupCron` проектов; бэкап
   гоняется по КАЖДОМУ деплою проекта (`listByProject`); у проекта без деплоев расписание не активно.
@@ -217,20 +225,28 @@ whitelist) в `app.ts`. `/ws` проверяется в `routes/ws.ts` на hand
 (статус в БД, disconnect, onResult installer'а) остаются в задаче.
 
 **Обработка ошибок:** глобальный `registerErrorHandler` (`plugins/errorHandler.ts`, регистрируется до роутов)
-+ `setNotFoundHandler`. Единый формат ответа `{ error }`; клиентские ошибки (4xx) отдаются как есть, а
-необработанные 5xx **логируются на сервере и НЕ раскрывают стектрейс/внутренности** наружу (общий текст;
-детали — только при `NODE_ENV=development`). Поэтому в роутах при внутреннем сбое достаточно бросить исключение.
+
+- `setNotFoundHandler`. Единый формат ответа `{ error }`; клиентские ошибки (4xx) отдаются как есть, а
+  необработанные 5xx **логируются на сервере и НЕ раскрывают стектрейс/внутренности** наружу (общий текст;
+  детали — только при `NODE_ENV=development`). Поэтому в роутах при внутреннем сбое достаточно бросить исключение.
 
 ### REST API
+
 Все ответы — JSON. Тела валидируются Zod-схемами из `@dankodeploy/shared` (`safeParse` → 400 при ошибке).
 Формат ошибки — `{ error }` (гарантируется глобальным error-handler'ом).
 
 ```
 GET    /api/health                              (public)
 # Аутентификация (public)
-GET    /api/auth/me                  → { authenticated, authRequired }
-POST   /api/auth/login               body: { password } → setCookie dd_session
+GET    /api/auth/me                  → { authenticated, authRequired, twoFactorRequired }
+POST   /api/auth/login               body: { password, code? } → setCookie dd_session
 POST   /api/auth/logout
+GET    /api/auth/two-factor          → { enabled, pendingSetup }
+POST   /api/auth/two-factor/setup    body: { password } → QR + секрет
+DELETE /api/auth/two-factor/setup    → отменить незавершённую настройку
+POST   /api/auth/two-factor/confirm  body: { password, code } → recovery-коды
+POST   /api/auth/two-factor/disable  body: { password, code }
+POST   /api/auth/two-factor/recovery-codes body: { password, code } → новые recovery-коды
 # Серверы
 GET    /api/servers
 GET    /api/servers/:id
@@ -309,6 +325,7 @@ GET    /api/ai/agents/:id/status     → { status, agent }
 ```
 
 ### WebSocket — `/ws`
+
 Одно соединение, мультиплексирование по каналам через `WsHub` (+ `TerminalBridge` для pty).
 Протокол — единый discriminatedUnion в `packages/shared/src/deploy.ts`. На handshake проверяются
 **(1) `Origin`** (`isAllowedWsOrigin` — должен совпасть с `webOrigin`; анти-CSWSH, т.к. WS не
@@ -345,33 +362,36 @@ Vite-приложение. В dev-режиме `vite.config.ts` **проксир
   `VpnClientSection` (из `VpnClientPage.tsx`: sing-box — сервер → subscription-ссылка → «Загрузить
   локации» → выбор локации → readiness → «Включить VPN»; список с проверкой внешнего IP и ручным
   обновлением подписки). `DocsPage` (`/docs/:section` — встроенная
-  документация в UI), `LoginPage` (вход по паролю); `AiAgentTerminalPage` и `ServerTerminalPage`
+  документация в UI), `LoginPage` (пароль + TOTP), `SecurityPage` (подключение/управление 2FA);
+  `AiAgentTerminalPage` и `ServerTerminalPage`
   (полноэкранные веб-терминалы, вне общего layout).
 - `components/` — `DeployDrawer`/`AiDeployDrawer` (live-логи), `Terminal` (xterm.js + кнопки-хоткеи
   для мобильных), `RequireAuth` (гейт аутентификации), `ui.tsx` (StatusBadge, MeterBar, Modal, Spinner).
 - Роутинг (`main.tsx`): `/login` публичный; `/ai/:id/terminal` и `/servers/:id/terminal` —
   full-screen вне layout; остальное (`projects`, `deployments`, `servers`, `keys`, `git-keys`,
-  `ai`, `vpn`, `backup`, `docs`) под `RequireAuth` + `App`-layout. Legacy-путь `/vpn-client`
+  `ai`, `vpn`, `backup`, `security`, `docs`) под `RequireAuth` + `App`-layout. Legacy-путь `/vpn-client`
   редиректит на `/vpn?tab=client`. Серверный стейт — TanStack Query (инвалидация после мутаций).
 
 ## 8. Модель данных (`packages/db/src/schema.ts`)
 
-| Таблица | Ключевые поля | Заметки |
-|---------|---------------|---------|
-| `ssh_keys` | `public_key`, `fingerprint`, `private_key_enc`, `passphrase_enc` | Приватник шифрован; публичный и fingerprint открыто |
-| `git_keys` | `public_key`, `fingerprint`, `private_key_enc`, `passphrase_enc` | Git deploy-ключи (отдельно от VPS). Приватник шифрован; на сервер кладётся при clone приватного репо |
-| `servers` | `auth_method` (key/password/stored-key), `secret_enc`, `key_id`, `host_key_fp` | `secret_enc` NULL для stored-key; `key_id` → `ssh_keys` (onDelete: set null); `host_key_fp` — запомненный fingerprint host key (TOFU, NULL до первого подключения) |
-| `projects` | `kind`, `config` (JSON ProjectConfig), `stack` | Карточка **БЕЗ сервера**. `config` — JSON-текст; `config.source` (опц.) — источник git-clone; `config.meta` (опц.) — справочная метаинформация (порты/контейнеры/env/чек-лист/ссылки/заметки) |
-| `deployments` | `project_id`, `server_id`, `last_deploy_status`, `last_deploy_at` | **Проект × сервер**. Пара `(project_id, server_id)` уникальна (`deployments_project_server_uq`). Оба FK onDelete: cascade |
-| `deploy_runs` | `deployment_id`, `status`, `log`, `started_at`, `finished_at` | Привязаны к деплою (не проекту). Полный лог раскатки для истории |
-| `backups` | `project_id`, `deployment_id`, `status`, `path`, `size_bytes`, `artifacts`, `scheduled`, `uploaded` | История на проекте; `deployment_id` (NULL у загруженных) — с какого деплоя снят. `artifacts` (JSON) — `[{name,path,sizeBytes}]`; `uploaded=true` — загружен файлом |
-| `metrics_snapshots` | `server_id` (PK), `snapshot` (JSON), `collected_at` | Кэш последнего снимка метрик (по 1 на сервер) |
-| `project_env` | `project_id` (PK), `content_enc`, `updated_at` | Зашифрованный `.env` проекта — шаблон (по 1 на проект); пишется на сервер выбранного деплоя в `<workdir>/.env` |
-| `ai_agents` | `agent_type`, `workdir`, `tmux_session`, `status`, `last_error` | Статус: installing/uninstalling/ready/running/stopped/error; сессия `dd-agent-<id>` |
-| `vpn_installations` | `server_id`, `kind`, `status`, `host`, `api_port`, `api_url_enc`, `cert_sha256` | VPN на сервере (Outline). Пара `(server_id, kind)` уникальна; FK onDelete: cascade. `api_url_enc` (management-токен) шифрован; наружу не отдаётся |
-| `vpn_clients` | `server_id`, `subscription_url_enc`, `selected_label`, `status`, `host`, `external_ip`, `sync_cron`, `last_synced_at` | VPN-клиент (sing-box): VPS гонит трафик через провайдера. `server_id` уникален (один клиент на сервер); FK onDelete: cascade. `subscription_url_enc` шифрован; список серверов подписки в БД НЕ хранится (тянется на лету) |
+| Таблица             | Ключевые поля                                                                                                         | Заметки                                                                                                                                                                                                                    |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ssh_keys`          | `public_key`, `fingerprint`, `private_key_enc`, `passphrase_enc`                                                      | Приватник шифрован; публичный и fingerprint открыто                                                                                                                                                                        |
+| `git_keys`          | `public_key`, `fingerprint`, `private_key_enc`, `passphrase_enc`                                                      | Git deploy-ключи (отдельно от VPS). Приватник шифрован; на сервер кладётся при clone приватного репо                                                                                                                       |
+| `servers`           | `auth_method` (key/password/stored-key), `secret_enc`, `key_id`, `host_key_fp`                                        | `secret_enc` NULL для stored-key; `key_id` → `ssh_keys` (onDelete: set null); `host_key_fp` — запомненный fingerprint host key (TOFU, NULL до первого подключения)                                                         |
+| `projects`          | `kind`, `config` (JSON ProjectConfig), `stack`                                                                        | Карточка **БЕЗ сервера**. `config` — JSON-текст; `config.source` (опц.) — источник git-clone; `config.meta` (опц.) — справочная метаинформация (порты/контейнеры/env/чек-лист/ссылки/заметки)                              |
+| `deployments`       | `project_id`, `server_id`, `last_deploy_status`, `last_deploy_at`                                                     | **Проект × сервер**. Пара `(project_id, server_id)` уникальна (`deployments_project_server_uq`). Оба FK onDelete: cascade                                                                                                  |
+| `deploy_runs`       | `deployment_id`, `status`, `log`, `started_at`, `finished_at`                                                         | Привязаны к деплою (не проекту). Полный лог раскатки для истории                                                                                                                                                           |
+| `backups`           | `project_id`, `deployment_id`, `status`, `path`, `size_bytes`, `artifacts`, `scheduled`, `uploaded`                   | История на проекте; `deployment_id` (NULL у загруженных) — с какого деплоя снят. `artifacts` (JSON) — `[{name,path,sizeBytes}]`; `uploaded=true` — загружен файлом                                                         |
+| `metrics_snapshots` | `server_id` (PK), `snapshot` (JSON), `collected_at`                                                                   | Кэш последнего снимка метрик (по 1 на сервер)                                                                                                                                                                              |
+| `project_env`       | `project_id` (PK), `content_enc`, `updated_at`                                                                        | Зашифрованный `.env` проекта — шаблон (по 1 на проект); пишется на сервер выбранного деплоя в `<workdir>/.env`                                                                                                             |
+| `ai_agents`         | `agent_type`, `workdir`, `tmux_session`, `status`, `last_error`                                                       | Статус: installing/uninstalling/ready/running/stopped/error; сессия `dd-agent-<id>`                                                                                                                                        |
+| `vpn_installations` | `server_id`, `kind`, `status`, `host`, `api_port`, `api_url_enc`, `cert_sha256`                                       | VPN на сервере (Outline). Пара `(server_id, kind)` уникальна; FK onDelete: cascade. `api_url_enc` (management-токен) шифрован; наружу не отдаётся                                                                          |
+| `vpn_clients`       | `server_id`, `subscription_url_enc`, `selected_label`, `status`, `host`, `external_ip`, `sync_cron`, `last_synced_at` | VPN-клиент (sing-box): VPS гонит трафик через провайдера. `server_id` уникален (один клиент на сервер); FK onDelete: cascade. `subscription_url_enc` шифрован; список серверов подписки в БД НЕ хранится (тянется на лету) |
+| `auth_settings`     | `totp_secret_enc`, `recovery_code_hashes`, `last_totp_counter`, `auth_version`                                        | Второй фактор владельца: секрет шифрован; recovery-коды хэшированы; replay TOTP блокируется. Не входит в экспорт конфигурации                                                                                              |
 
 > Пароль панели **не хранится в БД** — только scrypt-хэш в env (`DANKODEPLOY_AUTH_PASSWORD_HASH`).
+> В БД находится лишь зашифрованный TOTP-секрет; он намеренно не переносится экспортом конфигурации.
 
 ## 9. Безопасность
 
@@ -384,11 +404,13 @@ Vite-приложение. В dev-режиме `vite.config.ts` **проксир
   MITM/подмены сервера). При легитимном пересоздании VPS — `POST /api/servers/:id/reset-host-key`
   (также сбрасывается автоматически при смене `host`/`port`). Без этого `ssh2` принимал бы любой ключ.
 - **Аутентификация панели** — scrypt-хэш пароля в env (`DANKODEPLOY_AUTH_PASSWORD_HASH`,
-  генерится `pnpm gen-password`), сессия — подписанная httpOnly cookie. Guard защищает `/api/*`,
-  `/ws` проверяется на handshake. Без хэша — выключена (только локальный dev).
+  генерится `pnpm gen-password`) + опциональный TOTP Google Authenticator. TOTP-секрет лежит
+  только в AES-256-GCM-виде, recovery-коды — только как HMAC-хэши. Сессия — подписанная httpOnly
+  cookie. Guard защищает `/api/*`, `/ws` проверяется на handshake. Без хэша пароля auth выключена.
 - **Жизненный цикл сессии:** токен **истекает** через 30 дней (TTL, `AuthService` проверяет `issuedAt`)
-  и **отзывается** сменой пароля панели (подпись завязана на хэш пароля — `pnpm gen-password` + рестарт
-  инвалидирует все старые сессии). `logout` чистит cookie текущего браузера.
+  и **отзывается** сменой пароля либо конфигурации 2FA (подпись завязана на хэш пароля и
+  `auth_version`). После изменения 2FA текущий браузер получает новую cookie, остальные сессии
+  становятся недействительными. `logout` чистит cookie текущего браузера.
 - **Веб-терминалы = прямой shell-доступ к серверу.** Поэтому: auth обязательна перед выносом
   наружу; на WS-handshake проверяются сессия И `Origin` (анти-CSWSH: WS не подчиняется CORS,
   иначе чужой сайт открыл бы `/ws` с cookie жертвы), несоответствие — `close(1008)`; за reverse-proxy
@@ -413,18 +435,18 @@ Vite-приложение. В dev-режиме `vite.config.ts` **проксир
 
 См. `.env.example`. Сервер читает `.env` из корня репо (`--env-file=../../.env` в dev-скрипте).
 
-| Переменная | Назначение | Дефолт |
-|-----------|-----------|--------|
-| `PORT` | Порт API | `3001` |
-| `HOST` | Адрес прослушивания | `127.0.0.1` |
-| `DANKODEPLOY_ALLOW_NO_AUTH` | Разрешить не-петлевой `HOST` при выключенной auth (обход fail-closed; только за доверенным прокси) | — (выкл.) |
-| `DANKODEPLOY_MAX_UPLOAD_MB` | Лимит размера загружаемого файла (импорт/бэкап), МБ | `1024` (1 GiB) |
-| `DATABASE_URL` | Путь к SQLite | `./data/dankodeploy.sqlite` |
-| `DANKODEPLOY_MASTER_KEY` | Мастер-ключ AES-256-GCM (base64, 32 байта) | — (обязателен) |
-| `BACKUP_DIR` | Куда складывать бэкапы | `./backups` |
-| `WEB_ORIGIN` | Origin фронта для CORS | `http://localhost:5173` |
-| `DANKODEPLOY_AUTH_PASSWORD_HASH` | scrypt-хэш пароля панели (`pnpm gen-password`). Пусто = auth выключена | — (dev: пусто) |
-| `DANKODEPLOY_SESSION_SECRET` | Секрет подписи cookie сессии. Пусто = разовый при старте | — (генерится) |
+| Переменная                       | Назначение                                                                                         | Дефолт                      |
+| -------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------- |
+| `PORT`                           | Порт API                                                                                           | `3001`                      |
+| `HOST`                           | Адрес прослушивания                                                                                | `127.0.0.1`                 |
+| `DANKODEPLOY_ALLOW_NO_AUTH`      | Разрешить не-петлевой `HOST` при выключенной auth (обход fail-closed; только за доверенным прокси) | — (выкл.)                   |
+| `DANKODEPLOY_MAX_UPLOAD_MB`      | Лимит размера загружаемого файла (импорт/бэкап), МБ                                                | `1024` (1 GiB)              |
+| `DATABASE_URL`                   | Путь к SQLite                                                                                      | `./data/dankodeploy.sqlite` |
+| `DANKODEPLOY_MASTER_KEY`         | Мастер-ключ AES-256-GCM (base64, 32 байта)                                                         | — (обязателен)              |
+| `BACKUP_DIR`                     | Куда складывать бэкапы                                                                             | `./backups`                 |
+| `WEB_ORIGIN`                     | Origin фронта для CORS                                                                             | `http://localhost:5173`     |
+| `DANKODEPLOY_AUTH_PASSWORD_HASH` | scrypt-хэш пароля панели (`pnpm gen-password`). Пусто = auth выключена                             | — (dev: пусто)              |
+| `DANKODEPLOY_SESSION_SECRET`     | Секрет подписи cookie сессии. Пусто = разовый при старте                                           | — (генерится)               |
 
 > **Важно про `DATABASE_URL`:** относительный путь резолвится от cwd. Сервер запускается из
 > `apps/server`, а миграции — из `packages/db`. Чтобы оба указывали на ОДИН файл, в dev
@@ -447,6 +469,7 @@ pnpm gen-password                 # сгенерировать хэш парол
 ```
 
 ### Тестирование (Vitest)
+
 Юнит-тесты — рядом с кодом как `*.test.ts`, один корневой `vitest.config.ts`. Покрыты прежде всего
 **чистые функции** (без SSH/БД/сети), где регрессы дороги: `crypto` (шифрование/хэш), `vless/parseVlessUri`
 (разбор подписки), `vless/buildSingBoxConfig` (sing-box конфиг + критическое route-правило исключения SSH),
@@ -456,13 +479,16 @@ pnpm gen-password                 # сгенерировать хэш парол
 `security-audit`: `pnpm audit` на PR/по расписанию + Dependabot).
 
 ### Линтинг (ESLint + Prettier)
+
 `eslint.config.js` — flat-config (ESLint 9, **type-aware** typescript-eslint). Опасное → error
 (плавающие промисы, unused), стилевое → warn (`any`, non-null), `console` разрешён. `react-hooks`/
 `react-refresh` для `apps/web`. Prettier (`.prettierrc.json`, printWidth 100) форматирует код; стилевые
 ESLint-правила сняты через `eslint-config-prettier`. `pnpm lint` (0 errors) — часть локальной проверки.
 
 ### Управление схемой БД
+
 Проект **в активной разработке — миграции не ведутся**. Рабочий цикл:
+
 1. Правишь `packages/db/src/schema.ts`.
 2. `pnpm db:push` — drizzle-kit сравнивает схему с реальной БД и применяет diff напрямую
    (добавление/удаление колонок и таблиц, без SQL-файлов миграций).

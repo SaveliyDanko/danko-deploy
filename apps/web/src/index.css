@@ -3,9 +3,97 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply bg-ink text-slate-200 antialiased;
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-family:
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      "Segoe UI",
+      Roboto,
+      sans-serif;
+  }
+}
+
+@layer utilities {
+  .landing-grid {
+    background-image:
+      linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
+    background-size: 52px 52px;
+    mask-image: linear-gradient(to bottom, black, transparent 90%);
+  }
+
+  .landing-gradient-text {
+    background: linear-gradient(105deg, #a5b4fc 5%, #818cf8 45%, #67e8f9 100%);
+    background-clip: text;
+    color: transparent;
+  }
+
+  .landing-preview {
+    animation: landing-float 7s ease-in-out infinite;
+  }
+
+  .feature-icon {
+    display: grid;
+    height: 2.75rem;
+    width: 2.75rem;
+    place-items: center;
+    border-radius: 0.75rem;
+    border: 1px solid rgb(255 255 255 / 7%);
+    transition: transform 200ms ease;
+  }
+
+  article:hover .feature-icon {
+    transform: translateY(-2px);
+  }
+
+  .feature-icon-indigo {
+    background: rgb(99 102 241 / 12%);
+    color: #a5b4fc;
+  }
+  .feature-icon-cyan {
+    background: rgb(34 211 238 / 10%);
+    color: #67e8f9;
+  }
+  .feature-icon-emerald {
+    background: rgb(52 211 153 / 10%);
+    color: #6ee7b7;
+  }
+  .feature-icon-violet {
+    background: rgb(139 92 246 / 12%);
+    color: #c4b5fd;
+  }
+  .feature-icon-amber {
+    background: rgb(251 191 36 / 10%);
+    color: #fcd34d;
+  }
+  .feature-icon-rose {
+    background: rgb(251 113 133 / 10%);
+    color: #fda4af;
+  }
+}
+
+@keyframes landing-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .landing-preview {
+    animation: none;
   }
 }
 

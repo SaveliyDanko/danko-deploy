@@ -33,6 +33,13 @@ dankodeploy_compose_file: deploy/docker-compose.yml
 # Пользователь-владелец каталога (создаётся, если нет; от него работает git/compose).
 dankodeploy_user: dankodeploy
 
+# Pre-deploy backup постоянных Docker volumes и секретов. Снимок создаётся до
+# git pull/rebuild; при первом деплое автоматически пропускается.
+dankodeploy_backup_enabled: true
+dankodeploy_backup_dir: /var/backups/dankodeploy
+dankodeploy_backup_retention_days: 14
+dankodeploy_backup_image: alpine:3.20
+
 # Использовать staging-CA Let's Encrypt (для тестов, без лимитов на выпуск).
 # true — пока отлаживаете; false — боевой сертификат.
 dankodeploy_acme_staging: false

@@ -3,7 +3,9 @@
 
 - name: Поднять стек DankoDeploy
   ansible.builtin.command:
-    cmd: docker compose --env-file {{ dankodeploy_dir }}/.env -f {{ dankodeploy_compose_file }} up -d --build
+    cmd: >-
+      docker compose --env-file {{ dankodeploy_dir }}/.env
+      -f {{ dankodeploy_compose_file }} up -d --build --remove-orphans
     chdir: "{{ dankodeploy_dir }}"
   become_user: "{{ dankodeploy_user }}"
   register: dankodeploy_up

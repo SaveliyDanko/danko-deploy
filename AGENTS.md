@@ -15,13 +15,13 @@ TanStack Query. Общие типы — Zod в `packages/shared`. Запуска
 
 ## Карта репозитория
 
-| Путь | Пакет | Что внутри |
-|------|-------|-----------|
-| `apps/server` | `@dankodeploy/server` | Fastify API + WS + планировщик + auth + PTY-мост. Вход: `src/main.ts`. Сборка DI: `src/context.ts` |
-| `apps/web` | `@dankodeploy/web` | React + Vite дашборд (+ xterm.js терминал). Вход: `src/main.tsx` |
-| `packages/shared` | `@dankodeploy/shared` | **Zod-схемы и типы — источник истины** (вкл. WS-протокол в `deploy.ts`) |
-| `packages/db` | `@dankodeploy/db` | Drizzle schema (`src/schema.ts`); схему применять `pnpm db:push` |
-| `packages/core` | `@dankodeploy/core` | Доменная логика: `SshExecutor` (SSH) + `LocalExecutor` (локальные команды через `child_process`, из Docker — `nsenter`), `KeyManager`, `DeployRunner`/`UndeployRunner`/`ProvisionRunner`, `MetricsCollector`, `BackupRunner`/`RestoreRunner`, `AgentInstaller`, `DockerInstaller`/`NodeInstaller`/`SshHardeningInstaller`, crypto |
+| Путь              | Пакет                 | Что внутри                                                                                                                                                                                                                                                                                                                        |
+| ----------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/server`     | `@dankodeploy/server` | Fastify API + WS + планировщик + auth + PTY-мост. Вход: `src/main.ts`. Сборка DI: `src/context.ts`                                                                                                                                                                                                                                |
+| `apps/web`        | `@dankodeploy/web`    | React + Vite дашборд (+ xterm.js терминал). Вход: `src/main.tsx`                                                                                                                                                                                                                                                                  |
+| `packages/shared` | `@dankodeploy/shared` | **Zod-схемы и типы — источник истины** (вкл. WS-протокол в `deploy.ts`)                                                                                                                                                                                                                                                           |
+| `packages/db`     | `@dankodeploy/db`     | Drizzle schema (`src/schema.ts`); схему применять `pnpm db:push`                                                                                                                                                                                                                                                                  |
+| `packages/core`   | `@dankodeploy/core`   | Доменная логика: `SshExecutor` (SSH) + `LocalExecutor` (локальные команды через `child_process`, из Docker — `nsenter`), `KeyManager`, `DeployRunner`/`UndeployRunner`/`ProvisionRunner`, `MetricsCollector`, `BackupRunner`/`RestoreRunner`, `AgentInstaller`, `DockerInstaller`/`NodeInstaller`/`SshHardeningInstaller`, crypto |
 
 **Полная карта сервисов, эндпоинтов, схемы БД и WS-протокола — в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 (§5–§8). Читай её перед нетривиальными изменениями.** Плоский индекс всех файлов
@@ -41,22 +41,23 @@ pnpm db:push             # создать/обновить схему БД на�
 
 ## Команды разработки
 
-| Команда | Действие |
-|---------|---------|
-| `pnpm dev` | server (:3001) + web (:5173) параллельно |
-| `pnpm dev:server` / `pnpm dev:web` | по отдельности |
-| `pnpm typecheck` | `tsc --noEmit` по всем пакетам — **запускать после изменений** |
-| `pnpm test` | Vitest (unit-тесты чистых функций) — **запускать после изменений в core/web-утилитах** |
-| `pnpm test:watch` | Vitest в watch-режиме (для разработки тестов) |
-| `pnpm lint` | ESLint (flat-config, type-aware) по всему репо — **запускать после изменений** |
-| `pnpm lint:fix` | ESLint с авто-фиксом |
-| `pnpm format` / `format:check` | Prettier: форматирование / проверка |
-| `pnpm build` | сборка всех пакетов |
-| `pnpm db:push` | применить изменения `schema.ts` прямо к БД (**основной способ в dev**) |
-| `pnpm db:studio` | просмотр данных (Drizzle Studio) |
-| `pnpm gen-password` | сгенерировать хэш пароля панели (`DANKODEPLOY_AUTH_PASSWORD_HASH`) |
+| Команда                            | Действие                                                                               |
+| ---------------------------------- | -------------------------------------------------------------------------------------- |
+| `pnpm dev`                         | server (:3001) + web (:5173) параллельно                                               |
+| `pnpm dev:server` / `pnpm dev:web` | по отдельности                                                                         |
+| `pnpm typecheck`                   | `tsc --noEmit` по всем пакетам — **запускать после изменений**                         |
+| `pnpm test`                        | Vitest (unit-тесты чистых функций) — **запускать после изменений в core/web-утилитах** |
+| `pnpm test:watch`                  | Vitest в watch-режиме (для разработки тестов)                                          |
+| `pnpm lint`                        | ESLint (flat-config, type-aware) по всему репо — **запускать после изменений**         |
+| `pnpm lint:fix`                    | ESLint с авто-фиксом                                                                   |
+| `pnpm format` / `format:check`     | Prettier: форматирование / проверка                                                    |
+| `pnpm build`                       | сборка всех пакетов                                                                    |
+| `pnpm db:push`                     | применить изменения `schema.ts` прямо к БД (**основной способ в dev**)                 |
+| `pnpm db:studio`                   | просмотр данных (Drizzle Studio)                                                       |
+| `pnpm gen-password`                | сгенерировать хэш пароля панели (`DANKODEPLOY_AUTH_PASSWORD_HASH`)                     |
 
 ### Изменение схемы БД
+
 Проект **в активной разработке — миграции не ведём**. Меняешь `packages/db/src/schema.ts` →
 `pnpm db:push` применяет напрямую. **Не запускай `pnpm db:generate`/`db:migrate`** без явной
 просьбы (они нужны только для версионирования в продакшене).
@@ -89,8 +90,12 @@ pnpm db:push             # создать/обновить схему БД на�
   не ослабляй до «принимать любой ключ». Сброс — `POST /api/servers/:id/reset-host-key`.
 - Публичные типы (`*Public`) и API-ответы **не содержат** приватных ключей/паролей.
 - **Аутентификация:** пароль панели — scrypt-хэш в env, сессия в подписанной httpOnly cookie.
+  Опциональный TOTP (Google Authenticator) хранится в `auth_settings`: секрет только в
+  AES-256-GCM-виде, recovery-коды — только HMAC-хэши. Не включай `auth_settings` в экспорт
+  конфигурации: второй фактор должен оставаться привязанным к конкретной панели.
   Токен сессии **истекает** (TTL 30 дней, `validateSessionToken` проверяет `issuedAt`) и **отзывается**
-  сменой пароля (ключ HMAC завязан на хэш пароля). Не выдавай токены без TTL-проверки.
+  сменой пароля или настроек 2FA (ключ HMAC завязан на хэш пароля и `auth_version`).
+  Не выдавай токены без TTL-проверки.
   `/api/*` защищён guard'ом (`plugins/authGuard.ts`); `/ws` — проверкой **Origin** (`isAllowedWsOrigin`,
   анти-CSWSH) И сессии на handshake (`routes/ws.ts`, `close(1008)` иначе). **Веб-терминал = прямой shell к серверу:**
   любой новый WS-канал с доступом к серверу обязан быть за этой проверкой; auth на `/ws` не ослаблять.
@@ -115,6 +120,7 @@ pnpm db:push             # создать/обновить схему БД на�
 5. Менял зависимости — `pnpm run audit` (гейт по prod high/critical; `audit:all` — полный отчёт).
 
 ### Линтинг (ESLint + Prettier)
+
 Flat-config `eslint.config.js` (ESLint 9, **type-aware** typescript-eslint). Уровни прагматичные:
 **опасное → error** (`no-floating-promises`/`no-misused-promises`/`no-unused-vars`), стилевое → warn
 (`no-explicit-any`, `no-non-null-assertion`), `console` разрешён. Идиоматичный fire-and-forget
@@ -134,6 +140,8 @@ Prettier (`.prettierrc.json`, printWidth 100) — форматирование; 
 - `packages/core/src/server/vless/buildSingBoxConfig.test.ts` — генерация sing-box конфига (новый формат DNS, **route-правило `source_port:[SSH]→direct`**, tcp/grpc).
 - `apps/server/src/plugins/errorHandler.test.ts` — формат ответа об ошибке, сокрытие 5xx.
 - `apps/server/src/services/BackgroundRunner.test.ts` — контракт фоновой SSH-операции (runId/publish/done).
+- `apps/server/src/services/TwoFactorService.test.ts` — RFC-вектор TOTP, временное окно,
+  запрет replay и одноразовые recovery-коды.
 - `apps/server/src/services/backupFilename.test.ts` — имя файла бэкапа.
 - `apps/web/src/lib/format.test.ts` — форматтеры UI.
 
