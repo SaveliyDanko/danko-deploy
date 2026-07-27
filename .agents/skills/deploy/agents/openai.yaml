@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deploy DankoDeploy"
+  short_description: "Безопасный backup и деплой панели на VPS"
+  default_prompt: "Use $deploy to back up and safely update DankoDeploy on the production VPS."
