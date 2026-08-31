@@ -26,14 +26,21 @@ export interface AppConfig {
   sessionSecret: string;
   /** Включена ли аутентификация панели (true, если задан authPasswordHash). */
   authEnabled: boolean;
+  /** SHA-256 Bearer-токена с ограниченными правами для CLI-автоматизации. */
+  automationTokenHash: string | undefined;
   /** Максимальный размер загружаемого файла (байты) — лимит multipart против заполнения диска. */
   maxUploadBytes: number;
 }
 
 export function loadConfig(): AppConfig {
   const authPasswordHash = process.env.DANKODEPLOY_AUTH_PASSWORD_HASH || undefined;
+  const automationTokenHash = process.env.DANKODEPLOY_AUTOMATION_TOKEN_HASH || undefined;
   const authEnabled = !!authPasswordHash;
   const host = process.env.HOST ?? "127.0.0.1";
+
+  if (automationTokenHash && !/^[a-f0-9]{64}$/i.test(automationTokenHash)) {
+    throw new Error("DANKODEPLOY_AUTOMATION_TOKEN_HASH должен быть SHA-256 в hex-формате");
+  }
 
   if (!authEnabled) {
     // Fail-closed: панель = прямой shell ко всем серверам. Без пароля её НЕЛЬЗЯ
@@ -66,8 +73,10 @@ export function loadConfig(): AppConfig {
     // Если секрет не задан — генерируем разовый (сессии слетят при рестарте, для dev ок).
     sessionSecret: process.env.DANKODEPLOY_SESSION_SECRET || randomBytes(32).toString("hex"),
     authEnabled,
+    automationTokenHash,
     // Лимит загрузки (импорт конфигурации/файл бэкапа). Дефолт 1 GiB — вровень с
     // nginx client_max_body_size в проде; предохранитель от заполнения диска одним запросом.
-    maxUploadBytes: Math.max(1, Number(process.env.DANKODEPLOY_MAX_UPLOAD_MB) || 1024) * 1024 * 1024,
+    maxUploadBytes:
+      Math.max(1, Number(process.env.DANKODEPLOY_MAX_UPLOAD_MB) || 1024) * 1024 * 1024,
   };
 }

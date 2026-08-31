@@ -18,7 +18,22 @@
 | Новая **фоновая SSH-операция** со стрим-логом        | паттерн `services/BackgroundRunner.ts`                                             |
 | Доменная логика **поверх SSH** (без HTTP)            | `packages/core/src/*`                                                              |
 | Новая **страница/вкладка UI**                        | `apps/web/src/pages/*` + роут в `main.tsx` + ссылка в `App.tsx`                    |
+| Изменить **CLI для LLM-агентов**                     | `apps/cli/src/main.ts`; HTTP — `client.ts`, конфиг — `config.ts`                   |
 | Тронул **чистую функцию** (парсер/crypto/форматтер)  | добавь/обнови `*.test.ts` рядом (см. §тесты)                                       |
+
+---
+
+## `apps/cli` — `@dankodeploy/cli` (JSON-first автоматизация)
+
+> Установка, авторизация, команды, JSON-контракт и инструкция для LLM — [CLI.md](CLI.md).
+
+| Файл            | Что делает                                                                                   |
+| --------------- | -------------------------------------------------------------------------------------------- |
+| `src/main.ts`   | Команды init/context/status/deploy/backup/restore, ожидание фонового run, JSON + exit codes  |
+| `src/client.ts` | HTTP-клиент с Bearer-токеном из `DANKODEPLOY_TOKEN`; единый разбор `{ error }`               |
+| `src/config.ts` | Поиск вверх и валидация `.dankodeploy.json`; файл содержит URL и deploymentId, но не секреты |
+| `src/args.ts`   | Минимальный парсер повторяемых `--option`; используется без runtime-зависимостей             |
+| `build.mjs`     | Выставляет executable bit собранному `dist/main.js` для прямого и npm-bin запуска            |
 
 ---
 

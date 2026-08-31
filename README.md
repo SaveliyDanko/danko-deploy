@@ -5,6 +5,7 @@
 
 > **Документация:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — полный контекст и устройство ·
 > [docs/CODEMAP.md](docs/CODEMAP.md) — карта файлов (где что лежит) ·
+> [docs/CLI.md](docs/CLI.md) — CLI для LLM-агентов ·
 > [docs/SERVICE-SPEC.md](docs/SERVICE-SPEC.md) — как подготовить свои сервисы к деплою ·
 > [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) — инструкции для AI-агентов.
 
@@ -42,6 +43,7 @@
 apps/
   server/   # Fastify API + WS + SSH-движок + планировщик
   web/      # React-дашборд
+  cli/      # JSON-first CLI для LLM-агентов и автоматизации
 packages/
   shared/   # Zod-схемы и типы (источник истины)
   db/       # Drizzle schema + миграции (SQLite)
@@ -149,6 +151,36 @@ Docker, поднимает Traefik (если его нет) и сеть `web`, �
 - `deploySteps` — переопределить дефолтные шаги деплоя;
 - `backupCommand` — команда бэкапа (`{{OUT}}` подставляется путём к файлу);
 - `backupCron` — cron-выражение для авто-бэкапов.
+
+## CLI для LLM-агентов
+
+CLI связывает каталог репозитория с конкретным деплоем в панели и всегда выводит JSON. Файл
+`.dankodeploy.json` не содержит секретов, поэтому его можно коммитить; токен передаётся агенту
+только через `DANKODEPLOY_TOKEN`.
+
+```bash
+# В репозитории DankoDeploy: собрать/установить CLI и создать токен
+pnpm --filter @dankodeploy/cli build
+npm install -g ./apps/cli
+pnpm gen-token
+
+# Хэш из вывода добавить панели как DANKODEPLOY_AUTOMATION_TOKEN_HASH и перезапустить backend.
+# Сырой токен — только в окружение агента:
+export DANKODEPLOY_TOKEN=ddp_...
+
+# В каталоге управляемого проекта (deployment ID берётся из панели)
+dankodeploy init --url https://deploy.example.com --deployment <id>
+dankodeploy context
+dankodeploy deploy             # ждёт завершения и возвращает итоговый лог
+```
+
+Команды: `status`, `context`, `runs`, `backups`, `deploy`, `provision`, `undeploy`, `backup`,
+`restore`, `env-deploy`. Для фонового запуска есть `--no-wait`; ошибки и неуспешные операции
+возвращают ненулевой exit code. Bearer-токен не даёт доступ к SSH-ключам, содержимому `.env`,
+администрированию или `/ws`-терминалам.
+
+Подробное описание потока выполнения, всех команд, кодов завершения и настройки LLM-агента —
+в [docs/CLI.md](docs/CLI.md).
 
 ## AI-агенты (Claude Code / Codex)
 

@@ -14,6 +14,7 @@ services:
       BACKUP_DIR: /app/backups
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
       DANKODEPLOY_MASTER_KEY: ${DANKODEPLOY_MASTER_KEY:?Задайте DANKODEPLOY_MASTER_KEY в .env}
+      DANKODEPLOY_AUTOMATION_TOKEN_HASH: ${DANKODEPLOY_AUTOMATION_TOKEN_HASH:-}
       # HOST=0.0.0.0 нужен внутри контейнера, но порт публикуется ТОЛЬКО на 127.0.0.1
       # хоста (см. ports ниже) — наружу не торчит. Поэтому осознанно разрешаем старт
       # без пароля панели (иначе fail-closed-проверка в config.ts не даст подняться).

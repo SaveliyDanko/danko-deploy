@@ -46,19 +46,19 @@
 
 Поле `config` ↔ что делает:
 
-| Поле | Назначение |
-|------|-----------|
-| `workdir` | Рабочая директория на сервере (где `git pull` и все команды). **Обязательно.** |
-| `composeFile` | Имя compose-файла, если не `docker-compose.yml` (добавляет `-f <file>`). |
-| `systemdUnit` | Имя systemd-юнита (для kind=systemd). |
-| `deployScript` | Путь к скрипту раскатки в репозитории относительно `workdir` (для kind=script). По умолчанию `deploy.sh`. |
-| `undeployScript` | Путь к скрипту снятия в репозитории (для kind=script). Без него undeploy недоступен. |
-| `deploySteps` | Кастомные шаги деплоя — **полностью заменяют** дефолтные для kind. |
-| `undeploySteps` | Кастомные шаги undeploy — **полностью заменяют** дефолтные для kind. |
-| `backupArtifacts` | Список именованных артефактов: `[{name, backupCommand ({{OUT}}), restoreCommand? ({{IN}})}]`. |
-| `backupCommand`/`restoreCommand` | LEGACY: одиночная пара команд (оборачивается в артефакт `default`). |
-| `backupCron` | Cron-выражение для авто-бэкапов. |
-| `meta` | Справочная метаинформация: порты, контейнеры, env-переменные (чек-лист), чек-лист перед раскаткой, ссылки, заметки. На деплой не влияет. |
+| Поле                             | Назначение                                                                                                                               |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `workdir`                        | Рабочая директория на сервере (где `git pull` и все команды). **Обязательно.**                                                           |
+| `composeFile`                    | Имя compose-файла, если не `docker-compose.yml` (добавляет `-f <file>`).                                                                 |
+| `systemdUnit`                    | Имя systemd-юнита (для kind=systemd).                                                                                                    |
+| `deployScript`                   | Путь к скрипту раскатки в репозитории относительно `workdir` (для kind=script). По умолчанию `deploy.sh`.                                |
+| `undeployScript`                 | Путь к скрипту снятия в репозитории (для kind=script). Без него undeploy недоступен.                                                     |
+| `deploySteps`                    | Кастомные шаги деплоя — **полностью заменяют** дефолтные для kind.                                                                       |
+| `undeploySteps`                  | Кастомные шаги undeploy — **полностью заменяют** дефолтные для kind.                                                                     |
+| `backupArtifacts`                | Список именованных артефактов: `[{name, backupCommand ({{OUT}}), restoreCommand? ({{IN}})}]`.                                            |
+| `backupCommand`/`restoreCommand` | LEGACY: одиночная пара команд (оборачивается в артефакт `default`).                                                                      |
+| `backupCron`                     | Cron-выражение для авто-бэкапов.                                                                                                         |
+| `meta`                           | Справочная метаинформация: порты, контейнеры, env-переменные (чек-лист), чек-лист перед раскаткой, ссылки, заметки. На деплой не влияет. |
 
 **Проект (карточка) vs. деплой.** Проект в панели — это **карточка без сервера**: метаинформация,
 git-репозиторий, описание и конфиг раскатки (поля из таблицы выше) + общий шаблон `.env`. Чтобы
@@ -106,7 +106,7 @@ git-репозиторий, описание и конфиг раскатки (�
   1. Вкладка **«Git-ключи»** → «Сгенерировать» (рекомендуется ed25519). Приватная часть шифруется
      в БД панели (AES-256-GCM) и наружу не отдаётся.
   2. Скопируй публичную часть и добавь её в репозитории как **Deploy key**
-     (GitHub: *Settings → Deploy keys*; GitLab: *Settings → Repository → Deploy keys*). Read-only достаточно.
+     (GitHub: _Settings → Deploy keys_; GitLab: _Settings → Repository → Deploy keys_). Read-only достаточно.
   3. Создай проект с источником **Private git**, укажи ssh-URL и выбери этот ключ.
 
 Как это работает под капотом (private): панель кладёт приватный ключ во **временный файл** на сервере
@@ -117,6 +117,7 @@ StrictHostKeyChecking=accept-new'`; файл **удаляется сразу п�
 разворачивать приватный deploy-ключ в `~/.ssh` на сервере не нужно.
 
 Ограничения:
+
 - Раскатка работает только если **`workdir` пуст или не существует**. Если там уже что-то есть
   (в т.ч. готовый git-репо) — раскатка падает с понятной ошибкой; используй обычный **Deploy**.
 - Источник опционален. Если код уже лежит на сервере — выбери «Уже на сервере (не клонировать)».
@@ -178,9 +179,9 @@ Volumes не удаляются. Если нужно удалять дополн
 
 ```yaml
 deploySteps:
-  - { name: "Pull",     run: "git pull --ff-only" }
-  - { name: "Build",    run: "docker compose up -d --build" }
-  - { name: "Migrate",  run: "docker compose exec -T app npm run migrate" }
+  - { name: "Pull", run: "git pull --ff-only" }
+  - { name: "Build", run: "docker compose up -d --build" }
+  - { name: "Migrate", run: "docker compose exec -T app npm run migrate" }
 ```
 
 ### 4.3 Чтобы статус показывался `running`
@@ -189,6 +190,7 @@ deploySteps:
 **running**, если хотя бы один контейнер в состоянии running/up; пустой вывод → **stopped**.
 
 Следствия:
+
 - Сервисы должны **оставаться поднятыми** → ставьте **`restart: unless-stopped`** (или `always`).
 - Короткоживущие one-shot контейнеры (выполнили задачу и вышли) дадут статус `stopped`, даже если
   «всё ок» — они не должны быть основным сервисом.
@@ -281,7 +283,7 @@ tar xzf {{IN}} -C /srv/myapp
 services:
   app:
     env_file:
-      - .env              # весь .env → окружение контейнера
+      - .env # весь .env → окружение контейнера
     # либо точечно:
     # environment:
     #   - DATABASE_URL=${DATABASE_URL}   # ${...} берётся из .env рядом с compose
@@ -322,7 +324,7 @@ services:
   `deploySteps`:
   ```yaml
   deploySteps:
-    - { name: "Pull",  run: "git pull --ff-only" }
+    - { name: "Pull", run: "git pull --ff-only" }
     - { name: "Build", run: "npm ci && npm run build" }
     - { name: "Reload", run: "sudo systemctl reload nginx" }
   ```
@@ -376,12 +378,16 @@ services:
 > Раздел описывает рекомендуемый формат на будущее, чтобы конфиг жил рядом с кодом и
 > версионировался вместе с ним.
 
+Не путать с реализованным `.dankodeploy.json`: JSON-файл используется CLI только для связи
+локального репозитория с URL панели и `deploymentId`. Он не описывает раскладку сервиса и не
+содержит токен; сырой токен CLI приходит исключительно из `DANKODEPLOY_TOKEN`.
+
 Идея — файл `dankodeploy.yml` в корне репозитория с полями **1:1 к текущему `config`**:
 
 ```yaml
-kind: docker-compose          # docker-compose | systemd | script | process
+kind: docker-compose # docker-compose | systemd | script | process
 workdir: /srv/shop-api
-composeFile: docker-compose.prod.yml   # опционально
+composeFile: docker-compose.prod.yml # опционально
 backupCommand: "docker compose exec -T db pg_dump -U postgres shop | gzip > {{OUT}}"
 backupCron: "0 3 * * *"
 # deploySteps:                # опционально — заменяет дефолтные шаги
@@ -391,14 +397,14 @@ backupCron: "0 3 * * *"
 
 Соответствие «манифест → поле в UI»:
 
-| Поле манифеста | Поле в форме проекта |
-|----------------|----------------------|
-| `kind` | Тип проекта |
-| `workdir` | Рабочая директория |
-| `composeFile` | Compose-файл |
-| `systemdUnit` | systemd-юнит |
-| `deploySteps` | Шаги деплоя |
-| `backupCommand` / `backupCron` | Бэкап / расписание |
+| Поле манифеста                 | Поле в форме проекта |
+| ------------------------------ | -------------------- |
+| `kind`                         | Тип проекта          |
+| `workdir`                      | Рабочая директория   |
+| `composeFile`                  | Compose-файл         |
+| `systemdUnit`                  | systemd-юнит         |
+| `deploySteps`                  | Шаги деплоя          |
+| `backupCommand` / `backupCron` | Бэкап / расписание   |
 
 **Пока заполняйте те же значения в форме UI** — переход на манифест, когда он появится, будет бесшовным.
 
@@ -430,11 +436,13 @@ backupCron: "0 3 * * *"
 Финальный гейт перед первым деплоем (пример для docker-compose).
 
 **Репозиторий**
+
 - [ ] В корне — `docker-compose.yml` (или имя указано в `composeFile`).
 - [ ] `.env` в `.gitignore`, есть `.env.example`.
 - [ ] В истории git **нет секретов** (паролей, токенов, ключей).
 
 **Сервер**
+
 - [ ] `workdir = /srv/<name>` существует и **является git-репозиторием**.
 - [ ] SSH-пользователь панели **владеет** директорией и имеет доступ к git remote.
 - [ ] `.env` создан на сервере рядом с compose-файлом.
@@ -442,15 +450,18 @@ backupCron: "0 3 * * *"
 - [ ] (для systemd) Настроен passwordless sudo на `systemctl restart <unit>`.
 
 **Сервисы**
+
 - [ ] У долгоживущих сервисов — `restart: unless-stopped`.
 - [ ] (опц.) Настроен `healthcheck`.
 - [ ] Основной сервис — долгоживущий (виден в `docker compose ps`).
 
 **Панель**
+
 - [ ] Проект заведён: верный `kind`, `workdir`, при нестандартном файле — `composeFile`.
 - [ ] Задан `backupCommand` (и `backupCron`, если нужны авто-бэкапы).
 
 **Проверка**
+
 - [ ] Тестовый **Deploy** проходит зелёным.
 - [ ] В сводке видна **git-ревизия**.
 - [ ] Статус сервиса — **running**.
@@ -463,6 +474,7 @@ backupCron: "0 3 * * *"
 Первичная подготовка (делается один раз, вручную; дальше всё делает панель).
 
 **Принципы:**
+
 - Отдельный **непривилегированный пользователь** для деплоя (не root).
 - `git clone <repo> /srv/<name>` — код сразу в правильную раскладку.
 - **Deploy key** (или HTTPS-токен) на сервере для доступа к приватному repo.
@@ -470,6 +482,7 @@ backupCron: "0 3 * * *"
 - **Docker + compose-плагин** предустановлены.
 
 **Компактный чек-лист bootstrap:**
+
 1. Создать deploy-пользователя, дать ему права на `/srv`.
 2. Установить Docker и compose-плагин (или кнопкой **«Установить Docker»** на странице сервера).
 3. `git clone` проекта в `/srv/<name>` — или задать **источник кода** и нажать **«Раскатать»** (§3.1).
@@ -479,6 +492,7 @@ backupCron: "0 3 * * *"
 
 **Настройка SSH (кнопка «Настроить SSH» на странице сервера).** Применяет рекомендуемые
 параметры sshd, чтобы соединение было стабильнее и сервер защищённее:
+
 - поднимает лимиты подключений (`MaxStartups`/`MaxSessions`, `LoginGraceTime`) — всплески и
   брутфорс-атаки не рвут легитимные коннекты (частая причина ошибки «Channel open failure»);
 - включает keepalive (`ClientAliveInterval`/`ClientAliveCountMax`) — sshd сам закрывает зависшие сессии;
@@ -493,31 +507,31 @@ backupCron: "0 3 * * *"
 
 ## 11. Антипаттерны / частые ошибки
 
-| Проблема | Симптом | Решение |
-|----------|---------|---------|
-| Сборка на слабом VPS (`up -d --build`) | OOM, деплой висит/падает | Собирать образы в CI, на сервере только `pull` из registry (кастомные `deploySteps`) |
-| Секреты в git (`.env` закоммичен) | Утечка ключей | `.env` в `.gitignore`, держать только на сервере; ротировать утёкшие секреты |
-| `workdir` — не git-репозиторий | Пустая ревизия в сводке, `git pull` падает | `git clone` в `workdir` |
-| `kind = process` | Статус всегда `unknown` | Перейти на docker-compose / systemd, если нужен статус |
-| Правки файлов прямо на сервере | `git pull --ff-only` падает | Менять код только через repo (commit → push → deploy) |
-| Кастомные `deploySteps` без `git pull`/`up` | Код не обновился или сервис не перезапущен | Включить базовые шаги в `deploySteps` явно |
-| `docker compose exec` без `-T` в бэкапе | Ошибка TTY по SSH | Добавить `-T`: `docker compose exec -T db …` |
-| One-shot контейнер как основной сервис | Статус `stopped`, хотя «всё ок» | Долгоживущий процесс + `restart: unless-stopped` |
+| Проблема                                    | Симптом                                    | Решение                                                                              |
+| ------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------ |
+| Сборка на слабом VPS (`up -d --build`)      | OOM, деплой висит/падает                   | Собирать образы в CI, на сервере только `pull` из registry (кастомные `deploySteps`) |
+| Секреты в git (`.env` закоммичен)           | Утечка ключей                              | `.env` в `.gitignore`, держать только на сервере; ротировать утёкшие секреты         |
+| `workdir` — не git-репозиторий              | Пустая ревизия в сводке, `git pull` падает | `git clone` в `workdir`                                                              |
+| `kind = process`                            | Статус всегда `unknown`                    | Перейти на docker-compose / systemd, если нужен статус                               |
+| Правки файлов прямо на сервере              | `git pull --ff-only` падает                | Менять код только через repo (commit → push → deploy)                                |
+| Кастомные `deploySteps` без `git pull`/`up` | Код не обновился или сервис не перезапущен | Включить базовые шаги в `deploySteps` явно                                           |
+| `docker compose exec` без `-T` в бэкапе     | Ошибка TTY по SSH                          | Добавить `-T`: `docker compose exec -T db …`                                         |
+| One-shot контейнер как основной сервис      | Статус `stopped`, хотя «всё ок»            | Долгоживущий процесс + `restart: unless-stopped`                                     |
 
 ---
 
 ## 12. Приложение: справочник полей `config`
 
-| Поле | Обяз. | Тип | Что делает | Пример |
-|------|:----:|-----|-----------|--------|
-| `workdir` | да | string | Рабочая директория на сервере (git-репо) | `/srv/shop-api` |
-| `composeFile` | нет | string | Нестандартное имя compose-файла (`-f`) | `docker-compose.prod.yml` |
-| `systemdUnit` | нет | string | Имя systemd-юнита (kind=systemd) | `telegram-bot.service` |
-| `deployScript` | нет | string | Скрипт раскатки в репо (kind=script), по умолчанию `deploy.sh` | `deploy.sh` |
-| `undeployScript` | нет | string | Скрипт снятия в репо (kind=script) | `undeploy.sh` |
-| `deploySteps` | нет | `{name, run}[]` | Кастомные шаги (заменяют дефолт) | см. §4.2 / §6 |
-| `backupCommand` | нет | string | Команда бэкапа (`{{OUT}}` = файл) | `… pg_dump … > {{OUT}}` |
-| `backupCron` | нет | string | Cron авто-бэкапов | `0 3 * * *` |
+| Поле             | Обяз. | Тип             | Что делает                                                     | Пример                    |
+| ---------------- | :---: | --------------- | -------------------------------------------------------------- | ------------------------- |
+| `workdir`        |  да   | string          | Рабочая директория на сервере (git-репо)                       | `/srv/shop-api`           |
+| `composeFile`    |  нет  | string          | Нестандартное имя compose-файла (`-f`)                         | `docker-compose.prod.yml` |
+| `systemdUnit`    |  нет  | string          | Имя systemd-юнита (kind=systemd)                               | `telegram-bot.service`    |
+| `deployScript`   |  нет  | string          | Скрипт раскатки в репо (kind=script), по умолчанию `deploy.sh` | `deploy.sh`               |
+| `undeployScript` |  нет  | string          | Скрипт снятия в репо (kind=script)                             | `undeploy.sh`             |
+| `deploySteps`    |  нет  | `{name, run}[]` | Кастомные шаги (заменяют дефолт)                               | см. §4.2 / §6             |
+| `backupCommand`  |  нет  | string          | Команда бэкапа (`{{OUT}}` = файл)                              | `… pg_dump … > {{OUT}}`   |
+| `backupCron`     |  нет  | string          | Cron авто-бэкапов                                              | `0 3 * * *`               |
 
 Готовые примеры по каждому типу сервиса — в
 [`dankodeploy.config.example.yaml`](../dankodeploy.config.example.yaml).

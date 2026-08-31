@@ -19,6 +19,7 @@ TanStack Query. Общие типы — Zod в `packages/shared`. Запуска
 | ----------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `apps/server`     | `@dankodeploy/server` | Fastify API + WS + планировщик + auth + PTY-мост. Вход: `src/main.ts`. Сборка DI: `src/context.ts`                                                                                                                                                                                                                                |
 | `apps/web`        | `@dankodeploy/web`    | React + Vite дашборд (+ xterm.js терминал). Вход: `src/main.tsx`                                                                                                                                                                                                                                                                  |
+| `apps/cli`        | `@dankodeploy/cli`    | JSON-first CLI для LLM-агентов: проектный `.dankodeploy.json`, Bearer-токен из env, status/deploy/backup/restore                                                                                                                                                                                                                  |
 | `packages/shared` | `@dankodeploy/shared` | **Zod-схемы и типы — источник истины** (вкл. WS-протокол в `deploy.ts`)                                                                                                                                                                                                                                                           |
 | `packages/db`     | `@dankodeploy/db`     | Drizzle schema (`src/schema.ts`); схему применять `pnpm db:push`                                                                                                                                                                                                                                                                  |
 | `packages/core`   | `@dankodeploy/core`   | Доменная логика: `SshExecutor` (SSH) + `LocalExecutor` (локальные команды через `child_process`, из Docker — `nsenter`), `KeyManager`, `DeployRunner`/`UndeployRunner`/`ProvisionRunner`, `MetricsCollector`, `BackupRunner`/`RestoreRunner`, `AgentInstaller`, `DockerInstaller`/`NodeInstaller`/`SshHardeningInstaller`, crypto |
@@ -55,6 +56,7 @@ pnpm db:push             # создать/обновить схему БД на�
 | `pnpm db:push`                     | применить изменения `schema.ts` прямо к БД (**основной способ в dev**)                 |
 | `pnpm db:studio`                   | просмотр данных (Drizzle Studio)                                                       |
 | `pnpm gen-password`                | сгенерировать хэш пароля панели (`DANKODEPLOY_AUTH_PASSWORD_HASH`)                     |
+| `pnpm gen-token`                   | сгенерировать токен CLI и его SHA-256 для панели                                       |
 
 ### Изменение схемы БД
 
@@ -89,6 +91,10 @@ pnpm db:push             # создать/обновить схему БД на�
   `servers.host_key_fp`, сверять дальше, `HostKeyMismatchError` при несовпадении). Новые SSH-подключения
   не ослабляй до «принимать любой ключ». Сброс — `POST /api/servers/:id/reset-host-key`.
 - Публичные типы (`*Public`) и API-ответы **не содержат** приватных ключей/паролей.
+- **CLI-токен автоматизации** хранится у агента только в `DANKODEPLOY_TOKEN`; на панели — только
+  SHA-256 в `DANKODEPLOY_AUTOMATION_TOKEN_HASH`. Не записывай сырой токен в `.dankodeploy.json`.
+  Bearer-доступ ограничен allowlist операций проекта/деплоя и не должен открывать ключи, `.env`,
+  администрирование или `/ws`-терминал.
 - **Аутентификация:** пароль панели — scrypt-хэш в env, сессия в подписанной httpOnly cookie.
   Опциональный TOTP (Google Authenticator) хранится в `auth_settings`: секрет только в
   AES-256-GCM-виде, recovery-коды — только HMAC-хэши. Не включай `auth_settings` в экспорт

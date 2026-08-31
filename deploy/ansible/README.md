@@ -58,17 +58,21 @@ ansible-playbook site.yml --ask-vault-pass
 
 После прогона панель доступна на `https://<ваш-домен>` (вход по заданному паролю).
 
+Для CLI сначала выполните в локальном клоне `pnpm gen-token`, сохраните сырой
+`DANKODEPLOY_TOKEN` у агента, а SHA-256 запишите в `dankodeploy_automation_token_hash` в
+`group_vars/dankodeploy.yml`. Затем повторите прогон с `--tags secrets,deploy`.
+
 ## Полезное
 
-| Действие | Команда |
-|----------|---------|
-| Только обновить код и пересобрать | `ansible-playbook site.yml --ask-vault-pass --tags code,deploy` (backup включён автоматически) |
-| Только создать backup | `ansible-playbook site.yml --ask-vault-pass --tags backup` |
-| Прогнать без изменений (проверка) | `ansible-playbook site.yml --ask-vault-pass --check` |
-| Сменить пароль панели | отредактировать vault → прогон с `--tags secrets,deploy` |
-| Тестовый сертификат (без лимитов LE) | `dankodeploy_acme_staging: true` в `group_vars/dankodeploy.yml` |
-| Не трогать Traefik (управляю сам) | `dankodeploy_manage_traefik: false` |
-| Подключить к своему Traefik | оставьте `manage_traefik: true` — роль увидит запущенный Traefik и подключит панель меткой |
+| Действие                             | Команда                                                                                        |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Только обновить код и пересобрать    | `ansible-playbook site.yml --ask-vault-pass --tags code,deploy` (backup включён автоматически) |
+| Только создать backup                | `ansible-playbook site.yml --ask-vault-pass --tags backup`                                     |
+| Прогнать без изменений (проверка)    | `ansible-playbook site.yml --ask-vault-pass --check`                                           |
+| Сменить пароль панели                | отредактировать vault → прогон с `--tags secrets,deploy`                                       |
+| Тестовый сертификат (без лимитов LE) | `dankodeploy_acme_staging: true` в `group_vars/dankodeploy.yml`                                |
+| Не трогать Traefik (управляю сам)    | `dankodeploy_manage_traefik: false`                                                            |
+| Подключить к своему Traefik          | оставьте `manage_traefik: true` — роль увидит запущенный Traefik и подключит панель меткой     |
 
 ## Что беречь на сервере
 

@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "pnpm --parallel --filter \"./apps/**\" dev",
+    "dev": "pnpm --parallel --filter @dankodeploy/server --filter @dankodeploy/web dev",
     "dev:server": "pnpm --filter @dankodeploy/server dev",
     "dev:web": "pnpm --filter @dankodeploy/web dev",
     "build": "pnpm -r build",
@@ -15,6 +15,7 @@
     "db:migrate": "pnpm --filter @dankodeploy/db migrate",
     "db:studio": "pnpm --filter @dankodeploy/db studio",
     "gen-password": "pnpm --filter @dankodeploy/server gen-password",
+    "gen-token": "pnpm --filter @dankodeploy/server gen-token",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "test:watch": "vitest",

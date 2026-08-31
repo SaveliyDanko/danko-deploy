@@ -18,11 +18,14 @@ dankodeploy_acme_email: dankosaveliy.m@gmail.com
 #   vault_dankodeploy_panel_password
 dankodeploy_panel_password: "{{ vault_dankodeploy_panel_password }}"
 
-
 # --- ДЕФОЛТЫ (менять по желанию) ----------------------------------------------
 
 # Git-ветка для деплоя.
 dankodeploy_branch: main
+
+# Опциональный SHA-256 токена CLI (`pnpm gen-token`). Сырой DANKODEPLOY_TOKEN
+# хранится у вызывающего агента и никогда не записывается на сервер панели.
+dankodeploy_automation_token_hash: ""
 
 # Куда клонировать на сервере.
 dankodeploy_dir: /opt/dankodeploy

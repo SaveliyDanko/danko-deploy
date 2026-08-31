@@ -47,6 +47,9 @@
 **Frontend** (`apps/web`): React 18 + **Vite** + TypeScript, **Tailwind CSS**, **TanStack Query**
 (серверный стейт/кэш/поллинг), **React Router**.
 
+**CLI** (`apps/cli`): Node.js/TypeScript без runtime-зависимостей; JSON-first команды для
+LLM-агентов, проектный `.dankodeploy.json`, HTTP API с ограниченным Bearer-токеном.
+
 **Общее**: **Zod** — единый источник истины для типов и валидации (`packages/shared`).
 
 ## 4. Структура монорепо
@@ -59,6 +62,7 @@
 apps/
   server/   @dankodeploy/server  — Fastify API + WS + SSH-движок + планировщик
   web/      @dankodeploy/web      — React-дашборд (Vite)
+  cli/      @dankodeploy/cli      — CLI автоматизации из каталога проекта
 packages/
   shared/   @dankodeploy/shared   — Zod-схемы и типы (ИСТОЧНИК ИСТИНЫ)
   db/       @dankodeploy/db        — Drizzle schema + миграции + клиент SQLite
@@ -72,6 +76,7 @@ shared  ← db        (db использует только типы при не
 shared  ← core
 shared, core, db ← server
 shared           ← web
+shared           ← cli (только TypeScript-типы, runtime-зависимостей нет)
 ```
 
 `core` не знает про HTTP/Fastify — это переиспользуемая доменная логика поверх SSH.
@@ -217,6 +222,9 @@ whitelist) в `app.ts`. `/ws` проверяется в `routes/ws.ts` на hand
 → `close(1008)`). При `authEnabled=false` (нет хэша пароля) — всё открыто (dev).
 `POST /api/auth/login` ограничен `@fastify/rate-limit` (5 попыток / 15 мин на IP, иначе 429) —
 анти-брутфорс пароля. Плагин зарегистрирован с `global: false` (лимит только на этом роуте).
+Для CLI guard отдельно принимает Bearer-токен, сверяемый по SHA-256 из env. Его allowlist включает
+только чтение проектов/деплоев/истории и явные deploy/provision/undeploy/backup/restore/env-deploy;
+администрирование, выдача секретов и `/ws` недоступны.
 
 **`BackgroundRunner`** (`services/BackgroundRunner.ts`) — общий паттерн фоновой SSH-операции
 (раньше дублировался в ServerSetupService/VpnService/VpnClientService): `run(task)` генерит `runId`,
@@ -411,6 +419,9 @@ Vite-приложение. В dev-режиме `vite.config.ts` **проксир
   и **отзывается** сменой пароля либо конфигурации 2FA (подпись завязана на хэш пароля и
   `auth_version`). После изменения 2FA текущий браузер получает новую cookie, остальные сессии
   становятся недействительными. `logout` чистит cookie текущего браузера.
+- **Токен CLI** генерируется `pnpm gen-token`: сырой `DANKODEPLOY_TOKEN` хранится только у агента,
+  панель получает SHA-256 (`DANKODEPLOY_AUTOMATION_TOKEN_HASH`). Он ограничен allowlist REST-путей,
+  не принимается на `/ws` и никогда не записывается в проектный `.dankodeploy.json`.
 - **Веб-терминалы = прямой shell-доступ к серверу.** Поэтому: auth обязательна перед выносом
   наружу; на WS-handshake проверяются сессия И `Origin` (анти-CSWSH: WS не подчиняется CORS,
   иначе чужой сайт открыл бы `/ws` с cookie жертвы), несоответствие — `close(1008)`; за reverse-proxy
@@ -435,18 +446,19 @@ Vite-приложение. В dev-режиме `vite.config.ts` **проксир
 
 См. `.env.example`. Сервер читает `.env` из корня репо (`--env-file=../../.env` в dev-скрипте).
 
-| Переменная                       | Назначение                                                                                         | Дефолт                      |
-| -------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------- |
-| `PORT`                           | Порт API                                                                                           | `3001`                      |
-| `HOST`                           | Адрес прослушивания                                                                                | `127.0.0.1`                 |
-| `DANKODEPLOY_ALLOW_NO_AUTH`      | Разрешить не-петлевой `HOST` при выключенной auth (обход fail-closed; только за доверенным прокси) | — (выкл.)                   |
-| `DANKODEPLOY_MAX_UPLOAD_MB`      | Лимит размера загружаемого файла (импорт/бэкап), МБ                                                | `1024` (1 GiB)              |
-| `DATABASE_URL`                   | Путь к SQLite                                                                                      | `./data/dankodeploy.sqlite` |
-| `DANKODEPLOY_MASTER_KEY`         | Мастер-ключ AES-256-GCM (base64, 32 байта)                                                         | — (обязателен)              |
-| `BACKUP_DIR`                     | Куда складывать бэкапы                                                                             | `./backups`                 |
-| `WEB_ORIGIN`                     | Origin фронта для CORS                                                                             | `http://localhost:5173`     |
-| `DANKODEPLOY_AUTH_PASSWORD_HASH` | scrypt-хэш пароля панели (`pnpm gen-password`). Пусто = auth выключена                             | — (dev: пусто)              |
-| `DANKODEPLOY_SESSION_SECRET`     | Секрет подписи cookie сессии. Пусто = разовый при старте                                           | — (генерится)               |
+| Переменная                          | Назначение                                                                                         | Дефолт                      |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------- |
+| `PORT`                              | Порт API                                                                                           | `3001`                      |
+| `HOST`                              | Адрес прослушивания                                                                                | `127.0.0.1`                 |
+| `DANKODEPLOY_ALLOW_NO_AUTH`         | Разрешить не-петлевой `HOST` при выключенной auth (обход fail-closed; только за доверенным прокси) | — (выкл.)                   |
+| `DANKODEPLOY_MAX_UPLOAD_MB`         | Лимит размера загружаемого файла (импорт/бэкап), МБ                                                | `1024` (1 GiB)              |
+| `DATABASE_URL`                      | Путь к SQLite                                                                                      | `./data/dankodeploy.sqlite` |
+| `DANKODEPLOY_MASTER_KEY`            | Мастер-ключ AES-256-GCM (base64, 32 байта)                                                         | — (обязателен)              |
+| `BACKUP_DIR`                        | Куда складывать бэкапы                                                                             | `./backups`                 |
+| `WEB_ORIGIN`                        | Origin фронта для CORS                                                                             | `http://localhost:5173`     |
+| `DANKODEPLOY_AUTH_PASSWORD_HASH`    | scrypt-хэш пароля панели (`pnpm gen-password`). Пусто = auth выключена                             | — (dev: пусто)              |
+| `DANKODEPLOY_SESSION_SECRET`        | Секрет подписи cookie сессии. Пусто = разовый при старте                                           | — (генерится)               |
+| `DANKODEPLOY_AUTOMATION_TOKEN_HASH` | SHA-256 ограниченного токена CLI (`pnpm gen-token`)                                                | — (CLI выключен)            |
 
 > **Важно про `DATABASE_URL`:** относительный путь резолвится от cwd. Сервер запускается из
 > `apps/server`, а миграции — из `packages/db`. Чтобы оба указывали на ОДИН файл, в dev

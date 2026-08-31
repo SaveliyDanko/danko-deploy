@@ -4,7 +4,15 @@ import { isLoopbackHost, loadConfig } from "./config.js";
 
 describe("isLoopbackHost", () => {
   it("считает петлевыми localhost / 127.0.0.0/8 / ::1", () => {
-    for (const h of ["127.0.0.1", "127.1.2.3", "localhost", "LOCALHOST", "::1", "[::1]", " 127.0.0.1 "]) {
+    for (const h of [
+      "127.0.0.1",
+      "127.1.2.3",
+      "localhost",
+      "LOCALHOST",
+      "::1",
+      "[::1]",
+      " 127.0.0.1 ",
+    ]) {
       expect(isLoopbackHost(h)).toBe(true);
     }
   });
@@ -25,6 +33,7 @@ describe("loadConfig fail-closed (M1)", () => {
     "DANKODEPLOY_ALLOW_NO_AUTH",
     "DANKODEPLOY_MASTER_KEY",
     "DANKODEPLOY_SESSION_SECRET",
+    "DANKODEPLOY_AUTOMATION_TOKEN_HASH",
   ] as const;
   let saved: Record<string, string | undefined>;
 
@@ -61,5 +70,10 @@ describe("loadConfig fail-closed (M1)", () => {
     process.env.HOST = "0.0.0.0";
     process.env.DANKODEPLOY_AUTH_PASSWORD_HASH = "deadbeef:cafe";
     expect(loadConfig().authEnabled).toBe(true);
+  });
+
+  it("отклоняет некорректный хэш токена автоматизации", () => {
+    process.env.DANKODEPLOY_AUTOMATION_TOKEN_HASH = "secret";
+    expect(() => loadConfig()).toThrow(/AUTOMATION_TOKEN_HASH/);
   });
 });

@@ -50,11 +50,12 @@ const jsToTs = {
 };
 
 await build({
-  // main — сервер; genPassword — одноразовый скрипт хэша пароля (его дёргает Ansible
-  // в контейнере: `node dist/genPassword.js`, чтобы не тащить tsx/исходники в прод).
+  // main — сервер; остальные entry points — одноразовые генераторы секретов.
+  // genPassword дёргает Ansible в контейнере, чтобы не тащить tsx/исходники в прод.
   entryPoints: [
     { in: resolve(here, "src/main.ts"), out: "main" },
     { in: resolve(here, "src/scripts/genPassword.ts"), out: "genPassword" },
+    { in: resolve(here, "src/scripts/genAutomationToken.ts"), out: "genAutomationToken" },
   ],
   outdir: resolve(here, "dist"),
   bundle: true,

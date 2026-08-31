@@ -1,0 +1,25 @@
+{
+  "name": "@dankodeploy/cli",
+  "version": "0.1.0",
+  "description": "CLI для автоматизации DankoDeploy из каталога проекта",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "dankodeploy": "dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "postbuild": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@dankodeploy/shared": "workspace:*",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

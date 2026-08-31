@@ -14,18 +14,19 @@ services:
     image: dankodeploy-server:latest
     restart: unless-stopped
     environment:
-      HOST: 0.0.0.0                 # внутри контейнера слушаем все интерфейсы (наружу не торчит)
+      HOST: 0.0.0.0 # внутри контейнера слушаем все интерфейсы (наружу не торчит)
       PORT: 3001
-      DATABASE_URL: /app/data/dankodeploy.sqlite   # абсолютный — server и drizzle на один файл
+      DATABASE_URL: /app/data/dankodeploy.sqlite # абсолютный — server и drizzle на один файл
       BACKUP_DIR: /app/backups
       WEB_ORIGIN: https://${DANKODEPLOY_DOMAIN}
       DANKODEPLOY_MASTER_KEY: ${DANKODEPLOY_MASTER_KEY}
       DANKODEPLOY_AUTH_PASSWORD_HASH: ${DANKODEPLOY_AUTH_PASSWORD_HASH}
       DANKODEPLOY_SESSION_SECRET: ${DANKODEPLOY_SESSION_SECRET}
+      DANKODEPLOY_AUTOMATION_TOKEN_HASH: ${DANKODEPLOY_AUTOMATION_TOKEN_HASH:-}
     volumes:
-      - dankodeploy_data:/app/data        # SQLite-база
-      - dankodeploy_backups:/app/backups  # локальные бэкапы
-      - dankodeploy_ssh:/root/.ssh        # known_hosts/ключи исходящих SSH самой панели
+      - dankodeploy_data:/app/data # SQLite-база
+      - dankodeploy_backups:/app/backups # локальные бэкапы
+      - dankodeploy_ssh:/root/.ssh # known_hosts/ключи исходящих SSH самой панели
     networks:
       - internal
 
@@ -38,8 +39,8 @@ services:
     depends_on:
       - server
     networks:
-      - web        # для Traefik
-      - internal   # чтобы nginx достучался до server
+      - web # для Traefik
+      - internal # чтобы nginx достучался до server
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=web"

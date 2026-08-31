@@ -7,6 +7,7 @@
     "dev": "tsx watch --env-file=../../.env src/main.ts",
     "start": "node dist/main.js",
     "gen-password": "tsx src/scripts/genPassword.ts",
+    "gen-token": "tsx src/scripts/genAutomationToken.ts",
     "build": "node build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -22,8 +23,8 @@
     "adm-zip": "^0.6.0",
     "better-sqlite3": "^11.7.0",
     "drizzle-orm": "^0.45.2",
-    "fastify": "^5.2.0",
-    "nanoid": "^5.0.9",
+    "fastify": "^5.12.1",
+    "nanoid": "^5.1.16",
     "node-cron": "^4.6.0",
     "node-ssh": "^13.2.0",
     "qrcode": "^1.5.4",
