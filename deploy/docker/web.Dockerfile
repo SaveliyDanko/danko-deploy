@@ -7,7 +7,7 @@
 # Наружу (в Traefik) торчит ТОЛЬКО этот сервис на одном домене.
 
 # ---------- build: сборка статики ----------
-FROM node:22-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable

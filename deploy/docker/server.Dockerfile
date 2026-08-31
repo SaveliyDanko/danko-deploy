@@ -13,7 +13,7 @@
 #  - Схему БД применяет entrypoint (pnpm db:push, drizzle-kit) — миграций в проекте нет.
 
 # ---------- deps: установка зависимостей + нативная сборка ----------
-FROM node:22-bookworm-slim AS deps
+FROM node:26-bookworm-slim AS deps
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
@@ -43,7 +43,7 @@ COPY packages/db ./packages/db
 RUN pnpm --filter @dankodeploy/server build
 
 # ---------- runtime ----------
-FROM node:22-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 ENV NODE_ENV=production
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
