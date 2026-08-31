@@ -25,7 +25,7 @@ COPY apps/web ./apps/web
 RUN pnpm --filter @dankodeploy/web build
 
 # ---------- runtime: nginx со статикой ----------
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.31-alpine AS runtime
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 COPY deploy/docker/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
