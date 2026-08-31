@@ -6,6 +6,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
 
 import type { AppContext } from "./context.js";
+import { appInfo } from "./appInfo.js";
 import { registerAuthGuard } from "./plugins/authGuard.js";
 import { registerErrorHandler } from "./plugins/errorHandler.js";
 import { registerAiAgentRoutes } from "./routes/aiAgents.js";
@@ -41,7 +42,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   // Guard защищает /api/* (кроме whitelist) — регистрируется до роутов.
   registerAuthGuard(app, ctx);
 
-  app.get("/api/health", () => ({ ok: true }));
+  app.get("/api/health", () => ({ ok: true as const, ...appInfo }));
 
   registerAuthRoutes(app, ctx);
   registerServerRoutes(app, ctx);

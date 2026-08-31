@@ -77,6 +77,10 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Данные/бэкапы — на volumes (см. docker-compose).
 RUN mkdir -p /app/data /app/backups
+
+# Commit меняется на каждой раскатке. Держим ARG в конце, чтобы не сбрасывать кеш тяжёлых слоёв.
+ARG DANKODEPLOY_COMMIT=unknown
+ENV DANKODEPLOY_COMMIT=$DANKODEPLOY_COMMIT
 EXPOSE 3001
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

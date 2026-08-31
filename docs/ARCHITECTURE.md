@@ -244,7 +244,7 @@ whitelist) в `app.ts`. `/ws` проверяется в `routes/ws.ts` на hand
 Формат ошибки — `{ error }` (гарантируется глобальным error-handler'ом).
 
 ```
-GET    /api/health                              (public)
+GET    /api/health                              → { ok, version, commit } (public)
 # Аутентификация (public)
 GET    /api/auth/me                  → { authenticated, authRequired, twoFactorRequired }
 POST   /api/auth/login               body: { password, code? } → setCookie dd_session
@@ -379,6 +379,10 @@ Vite-приложение. В dev-режиме `vite.config.ts` **проксир
   full-screen вне layout; остальное (`projects`, `deployments`, `servers`, `keys`, `git-keys`,
   `ai`, `vpn`, `backup`, `security`, `docs`) под `RequireAuth` + `App`-layout. Legacy-путь `/vpn-client`
   редиректит на `/vpn?tab=client`. Серверный стейт — TanStack Query (инвалидация после мутаций).
+
+Версия панели показывается в `App` рядом с логотипом. `/api/health` отдаёт версию из корневого
+`package.json` и commit запущенной сборки. В production Ansible передаёт текущий commit как build
+arg server image и после раскатки сверяет оба значения в health-check.
 
 ## 8. Модель данных (`packages/db/src/schema.ts`)
 

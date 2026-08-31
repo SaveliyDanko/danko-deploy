@@ -1,5 +1,6 @@
 import type {
   AiAgentPublic,
+  HealthResponse,
   AuthMe,
   BackupRecord,
   ConnectionTestResult,
@@ -71,6 +72,8 @@ async function http<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  health: () => http<HealthResponse>("/api/health"),
+
   // --- Серверы ---
   listServers: () => http<ServerPublic[]>("/api/servers"),
   getServer: (id: string) => http<ServerPublic>(`/api/servers/${id}`),

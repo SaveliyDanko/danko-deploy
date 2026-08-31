@@ -11,6 +11,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/docker/server.Dockerfile
+      args:
+        DANKODEPLOY_COMMIT: ${DANKODEPLOY_COMMIT:-unknown}
     image: dankodeploy-server:latest
     restart: unless-stopped
     environment:

@@ -1,6 +1,24 @@
 ---
 # Запуск стека (build + up). Идемпотентно: compose поднимает только изменившееся.
 
+- name: Определить commit собираемой версии DankoDeploy
+  ansible.builtin.command:
+    cmd: git rev-parse HEAD
+    chdir: "{{ dankodeploy_dir }}"
+  become_user: "{{ dankodeploy_user }}"
+  register: dankodeploy_git_commit
+  changed_when: false
+  check_mode: false
+
+- name: Прочитать версию DankoDeploy из package.json
+  ansible.builtin.slurp:
+    src: "{{ dankodeploy_dir }}/package.json"
+  register: dankodeploy_package_json
+
+- name: Зафиксировать ожидаемую версию DankoDeploy
+  ansible.builtin.set_fact:
+    dankodeploy_expected_version: "{{ (dankodeploy_package_json.content | b64decode | from_json).version }}"
+
 - name: Поднять стек DankoDeploy
   ansible.builtin.command:
     cmd: >-
@@ -8,6 +26,8 @@
       -f {{ dankodeploy_compose_file }} up -d --build --remove-orphans
     chdir: "{{ dankodeploy_dir }}"
   become_user: "{{ dankodeploy_user }}"
+  environment:
+    DANKODEPLOY_COMMIT: "{{ dankodeploy_git_commit.stdout }}"
   register: dankodeploy_up
   changed_when: "'Started' in dankodeploy_up.stderr or 'Created' in dankodeploy_up.stderr or 'Recreate' in dankodeploy_up.stderr"
 
@@ -19,4 +39,15 @@
   register: dankodeploy_health
   retries: 12
   delay: 5
-  until: dankodeploy_health.status == 200
+  when: not ansible_check_mode
+  until:
+    - dankodeploy_health.status == 200
+    - (dankodeploy_health.json.version | default('')) == dankodeploy_expected_version
+    - (dankodeploy_health.json.commit | default('')) == dankodeploy_git_commit.stdout
+
+- name: Показать развернутую версию DankoDeploy
+  ansible.builtin.debug:
+    msg: >-
+      DankoDeploy v{{ dankodeploy_health.json.version }}
+      ({{ dankodeploy_health.json.commit[:7] }}) готов
+  when: not ansible_check_mode

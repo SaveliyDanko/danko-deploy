@@ -56,6 +56,7 @@
 | `src/vpn.ts`          | VPN-сервер (Outline): `vpnKindSchema`, `VpnReadiness`, `VpnInstallationPublic` (без токенов)                |
 | `src/vpnClient.ts`    | VPN-клиент (sing-box): `CreateVpnClientInput`, `VpnClientPublic`, `VpnClientServer`, `VpnClientExitInfo`    |
 | `src/auth.ts`         | Auth/2FA: login input, `AuthMe`, статус/подключение TOTP, recovery-коды                                     |
+| `src/appInfo.ts`      | Версия панели и контракт `/api/health`: semver + commit запущенной сборки                                   |
 
 ## `packages/db` — `@dankodeploy/db` (Drizzle + SQLite)
 
@@ -107,6 +108,7 @@
 | `src/config.ts`  | `AppConfig` из env (валидация при старте) + **fail-closed**: не-петлевой `HOST` без auth → throw. Список env — ARCHITECTURE.md §10                                             |
 | `src/context.ts` | **DI-контейнер `AppContext`**: создаёт все сервисы + общий `SshExecutor`/`WsHub`. Новый сервис регистрируй здесь. Разрыв цикла ServerService↔SshKeyService через `keyResolver` |
 | `src/app.ts`     | Сборка Fastify: плагины (cookie/cors/multipart/rate-limit/websocket), errorHandler, authGuard, регистрация всех роутов                                                         |
+| `src/appInfo.ts` | Метаданные запущенной сборки: версия из корневого `package.json`, commit из `DANKODEPLOY_COMMIT`                                                                            |
 
 ### Плагины (`src/plugins/`)
 

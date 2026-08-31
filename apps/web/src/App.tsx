@@ -106,6 +106,11 @@ export function App() {
   // Мобильное меню (бургер). Закрывается при смене маршрута.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const me = useQuery({ queryKey: ["auth", "me"], queryFn: api.me });
+  const appInfo = useQuery({
+    queryKey: ["app", "info"],
+    queryFn: api.health,
+    refetchInterval: 60_000,
+  });
 
   useEffect(() => subscribeDeployLogDrawer(setDeployLog), []);
   useEffect(() => setMobileNavOpen(false), [location.pathname]);
@@ -152,9 +157,24 @@ export function App() {
     <div className="min-h-screen">
       <header className="border-b border-edge bg-panel/60 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:gap-6 sm:px-6">
-          <span className="text-lg font-bold tracking-tight text-indigo-400 whitespace-nowrap">
-            ⚡ DankoDeploy
-          </span>
+          <div className="flex shrink-0 items-baseline gap-2 whitespace-nowrap">
+            <span className="text-lg font-bold tracking-tight text-indigo-400">⚡ DankoDeploy</span>
+            {appInfo.data && (
+              <span
+                className="text-[10px] font-medium text-slate-500"
+                title={
+                  appInfo.data.commit
+                    ? `Версия ${appInfo.data.version}, commit ${appInfo.data.commit}`
+                    : `Версия ${appInfo.data.version}`
+                }
+              >
+                v{appInfo.data.version}
+                {appInfo.data.commit && (
+                  <span className="hidden sm:inline"> · {appInfo.data.commit.slice(0, 7)}</span>
+                )}
+              </span>
+            )}
+          </div>
 
           {/* Десктоп: горизонтальный ряд пунктов. Прячется на узких экранах. */}
           <nav className="hidden flex-wrap gap-1 lg:flex">

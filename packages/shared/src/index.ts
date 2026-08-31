@@ -10,3 +10,4 @@ export * from "./configBackup.js";
 export * from "./vpn.js";
 export * from "./vpnClient.js";
 export * from "./auth.js";
+export * from "./appInfo.js";
