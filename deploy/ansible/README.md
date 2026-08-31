@@ -17,7 +17,8 @@ Ansible сам ставит Docker, поднимает общий Traefik (HTTPS
 5. **Генерит секреты один раз** (master-key, session-secret) и сохраняет в `secrets/` на сервере —
    повторный прогон их **не перетирает** (смена master-key = потеря зашифрованных SSH-доступов).
    Хэш пароля панели считается самим проектом (`pnpm gen-password`), не дублируя crypto.
-6. Фиксирует текущий Git commit в server image, выполняет `docker compose up -d --build`
+6. Фиксирует текущий Git commit в production `.env`, передаёт его backend-контейнеру,
+   выполняет `docker compose up -d --build`
    (server + web за Traefik) и проверяет через `/api/health` версию и точный commit сборки.
 
 Всё идемпотентно — повторный прогон обновляет код и пересобирает только изменившееся.

@@ -11,8 +11,6 @@ services:
     build:
       context: ..
       dockerfile: deploy/docker/server.Dockerfile
-      args:
-        DANKODEPLOY_COMMIT: ${DANKODEPLOY_COMMIT:-unknown}
     image: dankodeploy-server:latest
     restart: unless-stopped
     environment:
@@ -25,6 +23,7 @@ services:
       DANKODEPLOY_AUTH_PASSWORD_HASH: ${DANKODEPLOY_AUTH_PASSWORD_HASH}
       DANKODEPLOY_SESSION_SECRET: ${DANKODEPLOY_SESSION_SECRET}
       DANKODEPLOY_AUTOMATION_TOKEN_HASH: ${DANKODEPLOY_AUTOMATION_TOKEN_HASH:-}
+      DANKODEPLOY_COMMIT: ${DANKODEPLOY_COMMIT:-}
     volumes:
       - dankodeploy_data:/app/data # SQLite-база
       - dankodeploy_backups:/app/backups # локальные бэкапы

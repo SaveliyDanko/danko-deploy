@@ -381,8 +381,9 @@ Vite-приложение. В dev-режиме `vite.config.ts` **проксир
   редиректит на `/vpn?tab=client`. Серверный стейт — TanStack Query (инвалидация после мутаций).
 
 Версия панели показывается в `App` рядом с логотипом. `/api/health` отдаёт версию из корневого
-`package.json` и commit запущенной сборки. В production Ansible передаёт текущий commit как build
-arg server image и после раскатки сверяет оба значения в health-check.
+`package.json` и commit запущенной сборки. В production Ansible записывает текущий commit в
+production `.env`, Compose передаёт его backend-контейнеру, а после раскатки health-check сверяет
+оба значения.
 
 ## 8. Модель данных (`packages/db/src/schema.ts`)
 
